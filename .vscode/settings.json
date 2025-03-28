@@ -1,0 +1,14 @@
+{
+    "python.defaultInterpreterPath": "D:/DevEnv\\DevProjects\\SciLit\\.venv\\Scripts\\python.exe",
+    "terminal.integrated.profiles.windows": {
+        "Venv": {
+            "path": "powershell.exe",
+            "args": [
+                "-NoExit",
+                "-Command",
+                ". \"D:/DevEnv\\DevProjects\\SciLit\\.venv\\Scripts\\Activate.ps1\""
+            ]
+        }
+    },
+    "terminal.integrated.defaultProfile.windows": "Venv"
+}

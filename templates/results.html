@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Suchergebnisse{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1><i class="fas fa-search"></i> Suchergebnisse</h1>
+    <p>Ergebnisse für Ihre Anfrage: <span class="query-text">"{{ query }}"</span></p>
+</section>
+
+<section class="answer-section">
+    {% if search_type == "question" %}
+    <div class="answer-container">
+        <div class="answer-header">
+            <h2>Antwort auf Ihre Frage</h2>
+        </div>
+        <div class="answer-content">
+            <p>
+                Die Ergebnisse Ihrer Anfrage basieren auf Ihrer wissenschaftlichen Literatursammlung.
+                Hier ist eine zusammengestellte Antwort auf Ihre Frage.
+            </p>
+            
+            <!-- Beispielantwort, später dynamisch -->
+            <p>
+                Die Forschung zeigt, dass maschinelles Lernen in den letzten Jahren erhebliche Fortschritte gemacht hat, insbesondere im Bereich der neuronalen Netzwerke
+                <span class="inline-citation">(Smith et al., 2023)</span>. Tiefe neuronale Netzwerke haben sich bei Aufgaben wie Bilderkennung, natürlicher Sprachverarbeitung und Spielen als besonders effektiv erwiesen
+                <span class="inline-citation">(Johnson, 2022)</span>.
+            </p>
+            <p>
+                Zu den neuesten Entwicklungen gehören Transformer-Architekturen, die durch ihre Aufmerksamkeitsmechanismen besonders gut für die Verarbeitung sequentieller Daten geeignet sind
+                <span class="inline-citation">(Müller, 2022)</span>. Diese Architekturen bilden die Grundlage für moderne Sprachmodelle.
+            </p>
+            
+            <div class="citation">
+                "Neuronale Netzwerke haben in den letzten fünf Jahren eine beispiellose Entwicklung durchgemacht, mit Durchbrüchen in fast allen Anwendungsbereichen der künstlichen Intelligenz." <span class="citation-source">- Smith et al. (2023, S. 42)</span>
+            </div>
+        </div>
+        
+        <div class="sources-section">
+            <h3>Quellen</h3>
+            <div class="source-list">
+                <!-- Literaturverzeichnis, später dynamisch -->
+                <div class="source-item">
+                    Smith, J., & Johnson, A. (2023). Advances in Neural Networks. <em>Journal of AI Research</em>, 15(2), 38-52.
+                </div>
+                <div class="source-item">
+                    Johnson, A. (2022). <em>Maschinelles Lernen in der Praxis</em>. Springer.
+                </div>
+                <div class="source-item">
+                    Müller, T. (2022). Transformer-Architekturen und ihre Anwendungen. <em>Künstliche Intelligenz</em>, 36(1), 12-28.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="search-results">
+        <div class="result-header">
+            <h2>Relevante Textpassagen</h2>
+            <p class="result-count">{{ results|length }} Ergebnisse gefunden</p>
+        </div>
+        
+        {% for result in results %}
+        <div class="result-card">
+            <div class="result-text">
+                {{ result.text }}
+            </div>
+            <div class="result-footer">
+                <div class="result-source">
+                    <i class="fas fa-book"></i> {{ result.source }}
+                </div>
+                <div class="result-relevance">
+                    Relevanz: {{ (result.relevance * 100)|round }}%
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        
+        {% if results|length > 5 %}
+        <div class="pagination">
+            <div class="page-item">
+                <a href="#" class="page-link active">1</a>
+            </div>
+            <div class="page-item">
+                <a href="#" class="page-link">2</a>
+            </div>
+            <div class="page-item">
+                <a href="#" class="page-link">3</a>
+            </div>
+            <div class="page-item">
+                <span>...</span>
+            </div>
+            <div class="page-item">
+                <a href="#" class="page-link">
+                    <i class="fas fa-chevron-right"></i>
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="search-actions">
+        <a href="/search" class="btn btn-secondary">
+            <i class="fas fa-search"></i> Neue Suche
+        </a>
+        <button id="save-search" class="btn btn-text">
+            <i class="fas fa-bookmark"></i> Suche speichern
+        </button>
+    </div>
+</section>
+{% endblock %}

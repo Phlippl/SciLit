@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Startseite{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1>Willkommen bei SciLit</h1>
+    <p>Ihre persönliche KI-gestützte Wissensbibliothek für wissenschaftliche Literatur</p>
+    <div class="cta-buttons">
+        <a href="/upload" class="btn btn-primary"><i class="fas fa-upload"></i> Dokumente hochladen</a>
+        <a href="/search" class="btn btn-secondary"><i class="fas fa-search"></i> Literatur durchsuchen</a>
+    </div>
+</section>
+
+<section class="features">
+    <h2>Funktionen</h2>
+    <div class="feature-grid">
+        <div class="feature-card">
+            <div class="feature-icon"><i class="fas fa-file-upload"></i></div>
+            <h3>Dokumente verarbeiten</h3>
+            <p>Laden Sie wissenschaftliche Arbeiten als PDF, EPUB, DOCX und mehr hoch und lassen Sie sie automatisch verarbeiten.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon"><i class="fas fa-tags"></i></div>
+            <h3>Metadaten extrahieren</h3>
+            <p>Automatische Erkennung von Autoren, Veröffentlichungsdaten, Journalen und weiteren Metadaten über APIs.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon"><i class="fas fa-brain"></i></div>
+            <h3>KI-gestützte Suche</h3>
+            <p>Stellen Sie Fragen zu Ihrer Literatur und erhalten Sie präzise Antworten mit Quellenangaben.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon"><i class="fas fa-quote-right"></i></div>
+            <h3>Zitationsunterstützung</h3>
+            <p>Automatisches Erstellen von Literaturverzeichnissen und Kurzzitaten im gewünschten Zitationsstil.</p>
+        </div>
+    </div>
+</section>
+
+<section class="getting-started">
+    <h2>Schnellstart</h2>
+    <div class="steps">
+        <div class="step">
+            <div class="step-number">1</div>
+            <h3>Dokumente hochladen</h3>
+            <p>Laden Sie Ihre wissenschaftlichen Dokumente auf der Upload-Seite hoch.</p>
+        </div>
+        <div class="step">
+            <div class="step-number">2</div>
+            <h3>Verarbeitung abwarten</h3>
+            <p>SciLit analysiert Ihre Dokumente und extrahiert Metadaten und Inhalte.</p>
+        </div>
+        <div class="step">
+            <div class="step-number">3</div>
+            <h3>Suchen und Fragen</h3>
+            <p>Nutzen Sie die Suchfunktion, um in Ihrer persönlichen Wissensdatenbank zu recherchieren.</p>
+        </div>
+    </div>
+    <div class="cta-center">
+        <a href="/upload" class="btn btn-primary">Jetzt starten</a>
+    </div>
+</section>
+
+{% if recent_documents %}
+<section class="recent-documents">
+    <h2>Zuletzt verarbeitete Dokumente</h2>
+    <div class="document-grid">
+        {% for doc in recent_documents %}
+        <div class="document-card">
+            <h3>{{ doc.title }}</h3>
+            <p class="authors">{{ doc.authors|join(", ") }}</p>
+            <p class="source">{{ doc.source }}, {{ doc.year }}</p>
+            <a href="/documents/{{ doc.id }}" class="btn btn-text">Details anzeigen</a>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}

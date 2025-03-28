@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Meine Dokumente{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1><i class="fas fa-book"></i> Meine Dokumente</h1>
+    <p>Übersicht und Verwaltung Ihrer wissenschaftlichen Dokumente</p>
+</section>
+
+<section class="documents-section">
+    <div class="filter-bar">
+        <div class="filter-group">
+            <span class="filter-label"><i class="fas fa-filter"></i> Filter:</span>
+            <input type="text" id="filter-documents" class="filter-input" placeholder="Nach Titel oder Autor suchen...">
+        </div>
+        
+        <div class="filter-group">
+            <span class="filter-label">Jahr:</span>
+            <select id="year-filter" class="filter-input">
+                <option value="">Alle Jahre</option>
+                <option value="2023">2023</option>
+                <option value="2022">2022</option>
+                <option value="2021">2021</option>
+                <option value="2020">2020</option>
+                <option value="older">Älter</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <span class="filter-label">Typ:</span>
+            <select id="type-filter" class="filter-input">
+                <option value="">Alle Typen</option>
+                <option value="article">Artikel</option>
+                <option value="book">Buch</option>
+                <option value="thesis">Thesis</option>
+                <option value="other">Sonstige</option>
+            </select>
+        </div>
+        
+        <div class="filter-spacer"></div>
+        
+        <div class="sort-by">
+            <span class="filter-label">Sortieren nach:</span>
+            <select id="sort-documents" class="filter-input">
+                <option value="added">Hinzugefügt (neueste zuerst)</option>
+                <option value="title">Titel (A-Z)</option>
+                <option value="author">Autor (A-Z)</option>
+                <option value="year">Jahr (neueste zuerst)</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="documents-list">
+        {% for document in documents %}
+        <div class="document-item" data-added-date="{{ document.added_date|default('2023-01-01') }}">
+            <div class="document-header">
+                <div class="document-icon">
+                    {% if document.file_path.endswith('.pdf') %}
+                    <i class="fas fa-file-pdf"></i>
+                    {% elif document.file_path.endswith('.epub') %}
+                    <i class="fas fa-book"></i>
+                    {% elif document.file_path.endswith('.docx') %}
+                    <i class="fas fa-file-word"></i>
+                    {% else %}
+                    <i class="fas fa-file-alt"></i>
+                    {% endif %}
+                </div>
+                <h3 class="document-title">{{ document.title }}</h3>
+            </div>
+            <div class="document-body">
+                <div class="document-meta">
+                    <div class="meta-item document-authors">
+                        <i class="fas fa-user"></i> Autoren: {{ document.authors|join(", ") }}
+                    </div>
+                    <div class="meta-item document-year">
+                        <i class="fas fa-calendar"></i> Jahr: {{ document.year|default('Unbekannt') }}
+                    </div>
+                    <div class="meta-item">
+                        <i class="fas fa-book-open"></i> Quelle: {{ document.source }}
+                    </div>
+                    <div class="document-stats">
+                        <span class="document-stat"><i class="fas fa-file-alt"></i> {{ document.page_count|default(0) }} Seiten</span>
+                        <span class="document-stat"><i class="fas fa-paragraph"></i> {{ document.chunk_count|default(0) }} Chunks</span>
+                    </div>
+                </div>
+                <div class="document-actions">
+                    <a href="/documents/{{ document.id }}" class="btn btn-text">
+                        <i class="fas fa-info-circle"></i> Details
+                    </a>
+                    <button class="btn btn-text document-action-dropdown">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if not documents %}
+    <div class="empty-state">
+        <div class="empty-icon">
+            <i class="fas fa-book"></i>
+        </div>
+        <h3>Keine Dokumente gefunden</h3>
+        <p>Sie haben noch keine Dokumente hochgeladen oder verarbeitet.</p>
+        <a href="/upload" class="btn btn-primary">
+            <i class="fas fa-upload"></i> Dokumente hochladen
+        </a>
+    </div>
+    {% endif %}
+</section>
+
+<div class="document-stats-summary">
+    <div class="stats-container">
+        <div class="stat-box">
+            <div class="stat-value">{{ documents|length }}</div>
+            <div class="stat-label">Dokumente gesamt</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ total_pages|default(0) }}</div>
+            <div class="stat-label">Seiten gesamt</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ total_chunks|default(0) }}</div>
+            <div class="stat-label">Chunks gesamt</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ storage_used|default('0 MB') }}</div>
+            <div class="stat-label">Speicher verwendet</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

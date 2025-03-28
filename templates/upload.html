@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Dokumente hochladen{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1><i class="fas fa-upload"></i> Dokumente hochladen</h1>
+    <p>Laden Sie Ihre wissenschaftlichen Dokumente hoch, um sie zu analysieren und in Ihre Wissensdatenbank aufzunehmen.</p>
+</section>
+
+<section class="upload-section">
+    <div class="upload-area">
+        <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form" id="upload-form">
+            <div class="file-drop-area" id="file-drop-area">
+                <i class="fas fa-cloud-upload-alt file-icon"></i>
+                <p>Dokumente hierher ziehen oder <label for="file-input" class="file-select-link">Dateien auswählen</label></p>
+                <p class="file-types">Unterstützte Formate: PDF, EPUB, DOCX, PPTX, TXT</p>
+                <input type="file" id="file-input" name="files" multiple accept=".pdf,.epub,.docx,.pptx,.txt" style="display: none;">
+            </div>
+            
+            <div class="selected-files" id="selected-files">
+                <!-- Hier werden ausgewählte Dateien angezeigt -->
+            </div>
+            
+            <div class="upload-options">
+                <h3>Verarbeitungsoptionen</h3>
+                <div class="option-group">
+                    <label>
+                        <input type="checkbox" name="extract_metadata" checked>
+                        Metadaten automatisch extrahieren
+                    </label>
+                    <div class="sub-options">
+                        <label>
+                            <input type="checkbox" name="use_crossref" checked>
+                            CrossRef API verwenden
+                        </label>
+                        <label>
+                            <input type="checkbox" name="use_openlib" checked>
+                            OpenLib API verwenden
+                        </label>
+                        <label>
+                            <input type="checkbox" name="use_k10plus" checked>
+                            K10plus API verwenden
+                        </label>
+                        <label>
+                            <input type="checkbox" name="use_googlebooks" checked>
+                            Google Books API verwenden
+                        </label>
+                        <label>
+                            <input type="checkbox" name="use_openalex" checked>
+                            OpenAlex API verwenden
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-group">
+                    <label>
+                        <input type="checkbox" name="ocr_if_needed" checked>
+                        OCR bei Bedarf anwenden (für gescannte Dokumente)
+                    </label>
+                </div>
+                
+                <div class="option-group">
+                    <label for="language-select">Hauptsprache der Dokumente:</label>
+                    <select id="language-select" name="language">
+                        <option value="auto">Automatisch erkennen</option>
+                        <option value="de">Deutsch</option>
+                        <option value="en">Englisch</option>
+                        <option value="mixed">Gemischt (Deutsch & Englisch)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="upload-actions">
+                <button type="submit" class="btn btn-primary" id="upload-button" disabled>
+                    <i class="fas fa-upload"></i> Dokumente hochladen und verarbeiten
+                </button>
+                <button type="reset" class="btn btn-text" id="reset-button">
+                    <i class="fas fa-times"></i> Zurücksetzen
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    {% if results %}
+    <div class="upload-results">
+        <h2>Ergebnisse</h2>
+        <div class="results-list">
+            {% for result in results %}
+            <div class="result-item {% if result.status == 'failed' %}result-error{% else %}result-success{% endif %}">
+                <div class="result-icon">
+                    {% if result.status == 'failed' %}
+                    <i class="fas fa-times-circle"></i>
+                    {% else %}
+                    <i class="fas fa-check-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="result-details">
+                    <h3>{{ result.filename }}</h3>
+                    <p class="result-size">Größe: {{ (result.size / 1024)|round(2) }} KB</p>
+                    {% if result.status == 'failed' %}
+                    <p class="result-error">Fehler: {{ result.error }}</p>
+                    {% else %}
+                    <p class="result-status">Status: Hochgeladen, wird verarbeitet...</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="result-actions">
+            <a href="/documents" class="btn btn-secondary">Zur Dokumentenliste</a>
+            <button class="btn btn-text" id="clear-results">Ergebnisse ausblenden</button>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="upload-info">
+        <h3>Hinweise</h3>
+        <ul>
+            <li>Für eine optimale Verarbeitung sollten die Dokumente durchsuchbaren Text enthalten.</li>
+            <li>Bei PDF-Dateien mit gescannten Inhalten wird automatisch OCR angewendet, was die Verarbeitung verlangsamen kann.</li>
+            <li>Die automatische Metadatenextraktion funktioniert am besten bei wissenschaftlichen Artikeln aus bekannten Journalen oder Büchern mit ISBN.</li>
+            <li>Die maximale Dateigröße beträgt 100 MB pro Dokument.</li>
+        </ul>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const dropArea = document.getElementById('file-drop-area');
+        const fileInput = document.getElementById('file-input');
+        const selectedFilesContainer = document.getElementById('selected-files');
+        const uploadButton = document.getElementById('upload-button');
+        const resetButton = document.getElementById('reset-button');
+        const clearResultsButton = document.getElementById('clear-results');
+        
+        // Drag & Drop-Funktionalität
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.classList.add('highlight');
+        }
+        
+        function unhighlight() {
+            dropArea.classList.remove('highlight');
+        }
+        
+        // Dateien per Drag & Drop
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            fileInput.files = files;
+            updateFileList();
+        }
+        
+        // Dateien per Klick auswählen
+        fileInput.addEventListener('change', updateFileList);
+        
+        // Aktualisierung der Dateiliste
+        function updateFileList() {
+            selectedFilesContainer.innerHTML = '';
+            
+            if (fileInput.files.length > 0) {
+                const fileList = document.createElement('div');
+                fileList.className = 'file-list';
+                
+                Array.from(fileInput.files).forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-item';
+                    
+                    // Icon je nach Dateityp
+                    const fileIcon = document.createElement('div');
+                    fileIcon.className = 'file-item-icon';
+                    
+                    let iconClass = 'fas fa-file';
+                    if (file.name.endsWith('.pdf')) iconClass = 'fas fa-file-pdf';
+                    else if (file.name.endsWith('.epub')) iconClass = 'fas fa-book';
+                    else if (file.name.endsWith('.docx')) iconClass = 'fas fa-file-word';
+                    else if (file.name.endsWith('.pptx')) iconClass = 'fas fa-file-powerpoint';
+                    else if (file.name.endsWith('.txt')) iconClass = 'fas fa-file-alt';
+                    
+                    fileIcon.innerHTML = `<i class="${iconClass}"></i>`;
+                    
+                    // Dateiname und -größe
+                    const fileInfo = document.createElement('div');
+                    fileInfo.className = 'file-item-info';
+                    fileInfo.innerHTML = `
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-size">${formatFileSize(file.size)}</div>
+                    `;
+                    
+                    fileItem.appendChild(fileIcon);
+                    fileItem.appendChild(fileInfo);
+                    fileList.appendChild(fileItem);
+                });
+                
+                selectedFilesContainer.appendChild(fileList);
+                uploadButton.disabled = false;
+            } else {
+                uploadButton.disabled = true;
+            }
+        }
+        
+        // Dateigröße formatieren
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // Formular zurücksetzen
+        resetButton.addEventListener('click', function() {
+            selectedFilesContainer.innerHTML = '';
+            uploadButton.disabled = true;
+        });
+        
+        // Ergebnisse ausblenden
+        if (clearResultsButton) {
+            clearResultsButton.addEventListener('click', function() {
+                const resultsContainer = document.querySelector('.upload-results');
+                if (resultsContainer) {
+                    resultsContainer.style.display = 'none';
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

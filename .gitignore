@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+
+# Uploads & verarbeitete Dateien
+uploads/
+processed/
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
