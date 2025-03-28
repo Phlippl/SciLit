@@ -10,7 +10,7 @@
 
 <section class="upload-section">
     <div class="upload-area">
-        <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form" id="upload-form">
+        <form action="/upload-with-review" method="post" enctype="multipart/form-data" class="upload-form" id="upload-form">
             <div class="file-drop-area" id="file-drop-area">
                 <i class="fas fa-cloud-upload-alt file-icon"></i>
                 <p>Dokumente hierher ziehen oder <label for="file-input" class="file-select-link">Dateien auswählen</label></p>
@@ -22,58 +22,21 @@
                 <!-- Hier werden ausgewählte Dateien angezeigt -->
             </div>
             
-            <div class="upload-options">
-                <h3>Verarbeitungsoptionen</h3>
-                <div class="option-group">
-                    <label>
-                        <input type="checkbox" name="extract_metadata" checked>
-                        Metadaten automatisch extrahieren
-                    </label>
-                    <div class="sub-options">
-                        <label>
-                            <input type="checkbox" name="use_crossref" checked>
-                            CrossRef API verwenden
-                        </label>
-                        <label>
-                            <input type="checkbox" name="use_openlib" checked>
-                            OpenLib API verwenden
-                        </label>
-                        <label>
-                            <input type="checkbox" name="use_k10plus" checked>
-                            K10plus API verwenden
-                        </label>
-                        <label>
-                            <input type="checkbox" name="use_googlebooks" checked>
-                            Google Books API verwenden
-                        </label>
-                        <label>
-                            <input type="checkbox" name="use_openalex" checked>
-                            OpenAlex API verwenden
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="option-group">
-                    <label>
-                        <input type="checkbox" name="ocr_if_needed" checked>
-                        OCR bei Bedarf anwenden (für gescannte Dokumente)
-                    </label>
-                </div>
-                
-                <div class="option-group">
-                    <label for="language-select">Hauptsprache der Dokumente:</label>
-                    <select id="language-select" name="language">
-                        <option value="auto">Automatisch erkennen</option>
-                        <option value="de">Deutsch</option>
-                        <option value="en">Englisch</option>
-                        <option value="mixed">Gemischt (Deutsch & Englisch)</option>
-                    </select>
-                </div>
+            <!-- Versteckte Optionen, standardmäßig aktiviert -->
+            <div style="display:none;">
+                <input type="checkbox" name="extract_metadata" checked>
+                <input type="checkbox" name="use_crossref" checked>
+                <input type="checkbox" name="use_openlib" checked>
+                <input type="checkbox" name="use_k10plus" checked>
+                <input type="checkbox" name="use_googlebooks" checked>
+                <input type="checkbox" name="use_openalex" checked>
+                <input type="checkbox" name="ocr_if_needed" checked>
+                <input type="hidden" name="language" value="auto">
             </div>
             
             <div class="upload-actions">
                 <button type="submit" class="btn btn-primary" id="upload-button" disabled>
-                    <i class="fas fa-upload"></i> Dokumente hochladen und verarbeiten
+                    <i class="fas fa-upload"></i> Dokumente hochladen
                 </button>
                 <button type="reset" class="btn btn-text" id="reset-button">
                     <i class="fas fa-times"></i> Zurücksetzen
@@ -82,38 +45,6 @@
         </form>
     </div>
     
-    {% if results %}
-    <div class="upload-results">
-        <h2>Ergebnisse</h2>
-        <div class="results-list">
-            {% for result in results %}
-            <div class="result-item {% if result.status == 'failed' %}result-error{% else %}result-success{% endif %}">
-                <div class="result-icon">
-                    {% if result.status == 'failed' %}
-                    <i class="fas fa-times-circle"></i>
-                    {% else %}
-                    <i class="fas fa-check-circle"></i>
-                    {% endif %}
-                </div>
-                <div class="result-details">
-                    <h3>{{ result.filename }}</h3>
-                    <p class="result-size">Größe: {{ (result.size / 1024)|round(2) }} KB</p>
-                    {% if result.status == 'failed' %}
-                    <p class="result-error">Fehler: {{ result.error }}</p>
-                    {% else %}
-                    <p class="result-status">Status: Hochgeladen, wird verarbeitet...</p>
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        <div class="result-actions">
-            <a href="/documents" class="btn btn-secondary">Zur Dokumentenliste</a>
-            <button class="btn btn-text" id="clear-results">Ergebnisse ausblenden</button>
-        </div>
-    </div>
-    {% endif %}
-    
     <div class="upload-info">
         <h3>Hinweise</h3>
         <ul>
@@ -121,6 +52,7 @@
             <li>Bei PDF-Dateien mit gescannten Inhalten wird automatisch OCR angewendet, was die Verarbeitung verlangsamen kann.</li>
             <li>Die automatische Metadatenextraktion funktioniert am besten bei wissenschaftlichen Artikeln aus bekannten Journalen oder Büchern mit ISBN.</li>
             <li>Die maximale Dateigröße beträgt 100 MB pro Dokument.</li>
+            <li>Nach dem Hochladen können Sie die extrahierten Metadaten überprüfen und anpassen, bevor die Dokumente in Ihre Bibliothek aufgenommen werden.</li>
         </ul>
     </div>
 </section>
@@ -134,7 +66,6 @@
         const selectedFilesContainer = document.getElementById('selected-files');
         const uploadButton = document.getElementById('upload-button');
         const resetButton = document.getElementById('reset-button');
-        const clearResultsButton = document.getElementById('clear-results');
         
         // Drag & Drop-Funktionalität
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -234,16 +165,6 @@
             selectedFilesContainer.innerHTML = '';
             uploadButton.disabled = true;
         });
-        
-        // Ergebnisse ausblenden
-        if (clearResultsButton) {
-            clearResultsButton.addEventListener('click', function() {
-                const resultsContainer = document.querySelector('.upload-results');
-                if (resultsContainer) {
-                    resultsContainer.style.display = 'none';
-                }
-            });
-        }
     });
 </script>
 {% endblock %}

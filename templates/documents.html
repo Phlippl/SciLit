@@ -53,35 +53,35 @@
     
     <div class="documents-list">
         {% for document in documents %}
-        <div class="document-item" data-added-date="{{ document.added_date|default('2023-01-01') }}">
+        <div class="document-item" data-added-date="{{ document.added_at|default('2023-01-01') }}">
             <div class="document-header">
                 <div class="document-icon">
-                    {% if document.file_path.endswith('.pdf') %}
+                    {% if document.filename.endswith('.pdf') %}
                     <i class="fas fa-file-pdf"></i>
-                    {% elif document.file_path.endswith('.epub') %}
+                    {% elif document.filename.endswith('.epub') %}
                     <i class="fas fa-book"></i>
-                    {% elif document.file_path.endswith('.docx') %}
+                    {% elif document.filename.endswith('.docx') %}
                     <i class="fas fa-file-word"></i>
                     {% else %}
                     <i class="fas fa-file-alt"></i>
                     {% endif %}
                 </div>
-                <h3 class="document-title">{{ document.title }}</h3>
+                <h3 class="document-title">{{ document.metadata.title }}</h3>
             </div>
             <div class="document-body">
                 <div class="document-meta">
                     <div class="meta-item document-authors">
-                        <i class="fas fa-user"></i> Autoren: {{ document.authors|join(", ") }}
+                        <i class="fas fa-user"></i> Autoren: {{ document.metadata.author|join(", ") }}
                     </div>
                     <div class="meta-item document-year">
-                        <i class="fas fa-calendar"></i> Jahr: {{ document.year|default('Unbekannt') }}
+                        <i class="fas fa-calendar"></i> Jahr: {{ document.metadata.year|default('Unbekannt') }}
                     </div>
                     <div class="meta-item">
-                        <i class="fas fa-book-open"></i> Quelle: {{ document.source }}
+                        <i class="fas fa-book-open"></i> Quelle: {{ document.metadata.source }}
                     </div>
                     <div class="document-stats">
-                        <span class="document-stat"><i class="fas fa-file-alt"></i> {{ document.page_count|default(0) }} Seiten</span>
-                        <span class="document-stat"><i class="fas fa-paragraph"></i> {{ document.chunk_count|default(0) }} Chunks</span>
+                        <span class="document-stat"><i class="fas fa-file-alt"></i> {{ document.metadata.page_count|default(0) }} Seiten</span>
+                        <span class="document-stat"><i class="fas fa-paragraph"></i> {{ document.chunks_count|default(0) }} Chunks</span>
                     </div>
                 </div>
                 <div class="document-actions">

@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from .document_processor import DocumentProcessor
+from .metadata_api_client import MetadataAPIClient
+from .text_analysis import TextAnalyzer
 
 # Logger konfigurieren
 logger = logging.getLogger("scilit.document_manager")
