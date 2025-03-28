@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupUploadPage();
     setupSearchPage();
     setupDocumentsPage();
+    setupDocumentDetailPage();
 });
 
 // Mobile Navigation
@@ -185,7 +186,7 @@ function setupFooterDate() {
     const yearElement = document.querySelector('footer .container p');
     if (yearElement) {
         const year = new Date().getFullYear();
-        yearElement.innerHTML = yearElement.innerHTML.replace('{% now \'Y\' %}', year);
+        yearElement.innerHTML = yearElement.innerHTML.replace('{{ year }}', year);
     }
 }
 
@@ -286,4 +287,464 @@ function setupDocumentsPage() {
             documentItems.forEach(item => parent.appendChild(item));
         });
     }
+}
+
+// Dokument-Detail-Seite
+function setupDocumentDetailPage() {
+    // Prüfe, ob wir auf der Dokumentendetailseite sind
+    const documentData = document.getElementById('document-data');
+    if (!documentData) return;
+    
+    // Daten aus dem data-Attributen extrahieren
+    const docData = {
+        id: documentData.dataset.id,
+        title: documentData.dataset.title,
+        authors: JSON.parse(documentData.dataset.authors || '[]'),
+        year: documentData.dataset.year,
+        journal: documentData.dataset.journal,
+        publisher: documentData.dataset.publisher,
+        doi: documentData.dataset.doi,
+        isbn: documentData.dataset.isbn,
+        filepath: documentData.dataset.filepath,
+        addedAt: documentData.dataset.addedAt,
+        chunkCount: documentData.dataset.chunkCount
+    };
+    
+    // Tab-Funktionalität
+    setupTabs();
+    
+    // Zitieren-Funktionalität
+    setupCitationBox(docData);
+    
+    // Metadaten bearbeiten
+    setupMetadataEditing(docData);
+    
+    // Chunks filtern
+    setupChunksFiltering();
+    
+    // Dokument verwalten
+    setupDocumentManagement(docData);
+}
+
+// Tab-Funktionalität
+function setupTabs() {
+    const tabLinks = document.querySelectorAll('.tab-link');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    
+    tabLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Tab-Links deaktivieren
+            tabLinks.forEach(l => l.classList.remove('active'));
+            
+            // Tab-Panes ausblenden
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            
+            // Angeklickten Tab aktivieren
+            this.classList.add('active');
+            
+            // Entsprechenden Tab-Inhalt anzeigen
+            const targetId = this.getAttribute('href').substring(1);
+            document.getElementById(targetId).classList.add('active');
+        });
+    });
+}
+
+// Zitieren-Funktionalität
+function setupCitationBox(docData) {
+    const citeButton = document.getElementById('cite-document');
+    const citationBox = document.getElementById('citation-box');
+    const closeButton = document.querySelector('.citation-close');
+    const styleBtns = document.querySelectorAll('.citation-style-btn');
+    const copyButton = document.getElementById('copy-citation');
+    
+    if (!citeButton || !citationBox) return;
+    
+    // Zitieren-Box anzeigen
+    citeButton.addEventListener('click', function() {
+        citationBox.style.display = 'block';
+    });
+    
+    // Zitieren-Box schließen
+    closeButton.addEventListener('click', function() {
+        citationBox.style.display = 'none';
+    });
+    
+    // Zitierstil ändern
+    styleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            styleBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            const style = this.getAttribute('data-style');
+            updateCitationStyle(style, docData);
+        });
+    });
+    
+    // Zitation kopieren
+    copyButton.addEventListener('click', function() {
+        const citationText = document.getElementById('citation-text').innerText;
+        navigator.clipboard.writeText(citationText)
+            .then(() => {
+                this.innerHTML = '<i class="fas fa-check"></i> Kopiert!';
+                setTimeout(() => {
+                    this.innerHTML = '<i class="fas fa-copy"></i> Kopieren';
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Fehler beim Kopieren: ', err);
+            });
+    });
+}
+
+// Funktion zum Aktualisieren des Zitierstils
+function updateCitationStyle(style, docData) {
+    const citationText = document.getElementById('citation-text');
+    if (!citationText) return;
+    
+    const { authors, title, year, journal, publisher, doi } = docData;
+    let citation = '';
+    
+    switch (style) {
+        case 'apa':
+            // APA-Stil
+            if (authors && authors.length > 0) {
+                for (let i = 0; i < authors.length; i++) {
+                    const nameParts = authors[i].split(' ');
+                    const lastName = nameParts[nameParts.length - 1];
+                    const initials = nameParts.slice(0, -1).map(n => n[0] + '.').join(' ');
+                    
+                    citation += lastName + ', ' + initials;
+                    
+                    if (i < authors.length - 2) {
+                        citation += ', ';
+                    } else if (i === authors.length - 2) {
+                        citation += ', & ';
+                    }
+                }
+                
+                citation += ' ';
+            }
+            
+            citation += `(${year}). `;
+            citation += `${title}. `;
+            
+            if (journal) {
+                citation += `<em>${journal}</em>`;
+            } else if (publisher) {
+                citation += publisher;
+            }
+            
+            if (doi) {
+                citation += `. https://doi.org/${doi}`;
+            }
+            break;
+            
+        case 'mla':
+            // MLA-Stil
+            if (authors && authors.length > 0) {
+                const firstAuthor = authors[0].split(' ');
+                const firstAuthorLastName = firstAuthor[firstAuthor.length - 1];
+                const firstAuthorFirstName = firstAuthor.slice(0, -1).join(' ');
+                
+                citation += `${firstAuthorLastName}, ${firstAuthorFirstName}`;
+                
+                if (authors.length > 1) {
+                    citation += ', et al';
+                }
+                
+                citation += '. ';
+            }
+            
+            citation += `<em>${title}</em>. `;
+            
+            if (publisher) {
+                citation += `${publisher}, `;
+            }
+            
+            citation += year + '.';
+            
+            if (doi) {
+                citation += ` DOI: ${doi}`;
+            }
+            break;
+            
+        case 'chicago':
+            // Chicago-Stil
+            if (authors && authors.length > 0) {
+                for (let i = 0; i < authors.length; i++) {
+                    const nameParts = authors[i].split(' ');
+                    const lastName = nameParts[nameParts.length - 1];
+                    const firstName = nameParts.slice(0, -1).join(' ');
+                    
+                    if (i === 0) {
+                        citation += lastName + ', ' + firstName;
+                    } else {
+                        citation += firstName + ' ' + lastName;
+                    }
+                    
+                    if (i < authors.length - 2) {
+                        citation += ', ';
+                    } else if (i === authors.length - 2) {
+                        citation += ', and ';
+                    }
+                }
+                
+                citation += '. ';
+            }
+            
+            citation += `<em>${title}</em>. `;
+            
+            if (publisher) {
+                citation += `${publisher}, `;
+            }
+            
+            citation += year + '.';
+            
+            if (doi) {
+                citation += ` https://doi.org/${doi}.`;
+            }
+            break;
+            
+        case 'harvard':
+            // Harvard-Stil
+            if (authors && authors.length > 0) {
+                for (let i = 0; i < authors.length; i++) {
+                    const nameParts = authors[i].split(' ');
+                    const lastName = nameParts[nameParts.length - 1];
+                    const initials = nameParts.slice(0, -1).map(n => n[0] + '.').join('');
+                    
+                    citation += lastName + ', ' + initials;
+                    
+                    if (i < authors.length - 2) {
+                        citation += ', ';
+                    } else if (i === authors.length - 2) {
+                        citation += ' and ';
+                    }
+                }
+                
+                citation += ' ';
+            }
+            
+            citation += `(${year}) `;
+            citation += `<em>${title}</em>, `;
+            
+            if (publisher) {
+                citation += `${publisher}.`;
+            } else if (journal) {
+                citation += `${journal}.`;
+            }
+            
+            if (doi) {
+                citation += ` Available at: https://doi.org/${doi} (Accessed: ${new Date().toLocaleDateString()}).`;
+            }
+            break;
+    }
+    
+    citationText.innerHTML = citation;
+}
+
+// Metadaten bearbeiten
+function setupMetadataEditing(docData) {
+    const editMetadataBtn = document.getElementById('edit-metadata');
+    const metadataForm = document.getElementById('metadata-form');
+    const cancelEditBtn = document.getElementById('cancel-edit');
+    const editForm = document.getElementById('edit-metadata-form');
+    
+    if (!editMetadataBtn || !metadataForm) return;
+    
+    // Formular anzeigen
+    editMetadataBtn.addEventListener('click', function() {
+        metadataForm.style.display = 'block';
+    });
+    
+    // Formular ausblenden
+    cancelEditBtn.addEventListener('click', function() {
+        metadataForm.style.display = 'none';
+    });
+    
+    // Formular absenden
+    editForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Metadaten sammeln
+        const metadata = {
+            title: document.getElementById('edit-title').value,
+            author: document.getElementById('edit-authors').value.split(',').map(a => a.trim()),
+            year: document.getElementById('edit-year').value,
+            journal: document.getElementById('edit-journal').value,
+            publisher: document.getElementById('edit-publisher').value,
+            doi: document.getElementById('edit-doi').value,
+            isbn: document.getElementById('edit-isbn').value
+        };
+        
+        // API-Aufruf zum Aktualisieren der Metadaten
+        fetch(`/documents/${docData.id}/metadata`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(metadata)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Formular ausblenden und Seite neu laden
+                metadataForm.style.display = 'none';
+                window.location.reload();
+            } else {
+                alert('Fehler beim Aktualisieren der Metadaten');
+            }
+        })
+        .catch(error => {
+            console.error('Fehler:', error);
+            alert('Fehler beim Aktualisieren der Metadaten');
+        });
+    });
+}
+
+// Chunks filtern
+function setupChunksFiltering() {
+    const filterInput = document.getElementById('filter-chunks');
+    const chunkItems = document.querySelectorAll('.chunk-item');
+    const filterCount = document.querySelector('.filter-count');
+    
+    if (!filterInput) return;
+    
+    filterInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        let visibleCount = 0;
+        
+        chunkItems.forEach(item => {
+            const chunkText = item.querySelector('.chunk-text').textContent.toLowerCase();
+            const matchesSearch = chunkText.includes(searchTerm);
+            
+            item.style.display = matchesSearch ? 'block' : 'none';
+            
+            if (matchesSearch) {
+                visibleCount++;
+            }
+        });
+        
+        filterCount.textContent = `${visibleCount} von ${chunkItems.length} Chunks`;
+    });
+}
+
+// Dokument verwalten (löschen, neu verarbeiten, exportieren)
+function setupDocumentManagement(docData) {
+    // Dokument löschen
+    setupDocumentDeletion(docData);
+    
+    // Dokument neu verarbeiten
+    setupDocumentReprocessing(docData);
+    
+    // Metadaten exportieren
+    setupMetadataExport(docData);
+}
+
+// Dokument löschen
+function setupDocumentDeletion(docData) {
+    const deleteBtn = document.getElementById('delete-document');
+    const deleteConfirmation = document.getElementById('delete-confirmation');
+    const confirmDeleteBtn = document.getElementById('confirm-delete');
+    const cancelDeleteBtn = document.getElementById('cancel-delete');
+    
+    if (!deleteBtn || !deleteConfirmation) return;
+    
+    // Bestätigung anzeigen
+    deleteBtn.addEventListener('click', function() {
+        deleteConfirmation.style.display = 'block';
+    });
+    
+    // Abbrechen
+    cancelDeleteBtn.addEventListener('click', function() {
+        deleteConfirmation.style.display = 'none';
+    });
+    
+    // Löschen bestätigen
+    confirmDeleteBtn.addEventListener('click', function() {
+        // API-Aufruf zum Löschen des Dokuments
+        fetch(`/documents/${docData.id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                window.location.href = '/documents';
+            } else {
+                alert('Fehler beim Löschen des Dokuments');
+            }
+        })
+        .catch(error => {
+            console.error('Fehler:', error);
+            alert('Fehler beim Löschen des Dokuments');
+        });
+    });
+}
+
+// Dokument neu verarbeiten
+function setupDocumentReprocessing(docData) {
+    const reprocessBtn = document.getElementById('reprocess-document');
+    
+    if (!reprocessBtn) return;
+    
+    reprocessBtn.addEventListener('click', function() {
+        if (confirm('Möchtest du das Dokument neu verarbeiten? Dies kann einige Zeit dauern.')) {
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Wird verarbeitet...';
+            this.disabled = true;
+            
+            // API-Aufruf zum Neuverarbeiten des Dokuments
+            fetch(`/documents/${docData.id}/reprocess`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    window.location.reload();
+                } else {
+                    alert('Fehler beim Neuverarbeiten des Dokuments');
+                    this.innerHTML = '<i class="fas fa-sync"></i> Dokument neu verarbeiten';
+                    this.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('Fehler:', error);
+                alert('Fehler beim Neuverarbeiten des Dokuments');
+                this.innerHTML = '<i class="fas fa-sync"></i> Dokument neu verarbeiten';
+                this.disabled = false;
+            });
+        }
+    });
+}
+
+// Metadaten exportieren
+function setupMetadataExport(docData) {
+    const exportBtn = document.getElementById('export-document');
+    
+    if (!exportBtn) return;
+    
+    exportBtn.addEventListener('click', function() {
+        // Metadaten für den Export vorbereiten
+        const exportMetadata = {
+            title: docData.title,
+            authors: docData.authors,
+            year: docData.year,
+            source: docData.journal || docData.publisher || '',
+            doi: docData.doi,
+            isbn: docData.isbn
+        };
+        
+        // Als JSON exportieren
+        const blob = new Blob([JSON.stringify(exportMetadata, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        // Download initiieren
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${docData.title.replace(/\s+/g, '_')}_metadata.json`;
+        a.click();
+        
+        URL.revokeObjectURL(url);
+    });
 }

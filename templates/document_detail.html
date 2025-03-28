@@ -1,0 +1,776 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - {{ metadata.title }}{% endblock %}
+
+{% block content %}
+<!-- Verstecktes Div mit allen Metadaten als Daten-Attribute -->
+<div id="document-data" 
+     data-id="{{ document.id }}" 
+     data-title="{{ metadata.title|default('')|replace('"', '\\"') }}"
+     data-authors="{{ metadata.author|tojson }}"
+     data-year="{{ metadata.year|default('')|tojson }}"
+     data-journal="{{ metadata.journal|default('')|replace('"', '\\"') }}"
+     data-publisher="{{ metadata.publisher|default('')|replace('"', '\\"') }}"
+     data-doi="{{ metadata.doi|default('')|replace('"', '\\"') }}"
+     data-isbn="{{ metadata.isbn|default('')|replace('"', '\\"') }}"
+     data-filepath="{{ document.filepath|default('')|replace('"', '\\"') }}"
+     data-added-at="{{ document.added_at|default('')|replace('"', '\\"') }}"
+     data-chunk-count="{{ chunk_count }}"
+     style="display:none;">
+</div>
+
+<section class="page-header">
+    <h1><i class="fas fa-file-alt"></i> {{ metadata.title }}</h1>
+    <p>
+        {% if metadata.author %}
+            Von {{ metadata.author|join(", ") }}
+            {% if metadata.year %}
+                ({{ metadata.year }})
+            {% endif %}
+        {% endif %}
+    </p>
+</section>
+
+<div class="document-tabs">
+    <nav class="tabs-nav">
+        <a href="#overview" class="tab-link active"><i class="fas fa-info-circle"></i> Übersicht</a>
+        <a href="#metadata" class="tab-link"><i class="fas fa-tags"></i> Metadaten</a>
+        <a href="#chunks" class="tab-link"><i class="fas fa-puzzle-piece"></i> Chunks ({{ chunk_count }})</a>
+        {% if document.filepath.endswith('.pdf') %}
+        <a href="#preview" class="tab-link"><i class="fas fa-eye"></i> Vorschau</a>
+        {% endif %}
+        <a href="#manage" class="tab-link"><i class="fas fa-cog"></i> Verwalten</a>
+    </nav>
+
+    <div class="tab-content">
+        <!-- Übersichts-Tab -->
+        <div id="overview" class="tab-pane active">
+            <div class="document-info-card">
+                <div class="document-header">
+                    <div class="document-icon">
+                        {% if document.filepath.endswith('.pdf') %}
+                        <i class="fas fa-file-pdf"></i>
+                        {% elif document.filepath.endswith('.epub') %}
+                        <i class="fas fa-book"></i>
+                        {% elif document.filepath.endswith('.docx') %}
+                        <i class="fas fa-file-word"></i>
+                        {% elif document.filepath.endswith('.pptx') %}
+                        <i class="fas fa-file-powerpoint"></i>
+                        {% else %}
+                        <i class="fas fa-file-alt"></i>
+                        {% endif %}
+                    </div>
+                    <div class="document-title-wrap">
+                        <h2>{{ metadata.title }}</h2>
+                        <p class="document-type">{{ document.filepath.split('.')|last|upper }}</p>
+                    </div>
+                </div>
+                <div class="document-summary">
+                    <div class="summary-item">
+                        <div class="summary-label">Autoren</div>
+                        <div class="summary-value">{{ metadata.author|join(", ") }}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Jahr</div>
+                        <div class="summary-value">{{ metadata.year }}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Quelle</div>
+                        <div class="summary-value">
+                            {% if metadata.journal %}
+                                {{ metadata.journal }}
+                            {% elif metadata.publisher %}
+                                {{ metadata.publisher }}
+                            {% elif metadata.source %}
+                                {{ metadata.source }}
+                            {% else %}
+                                Unbekannt
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Seiten</div>
+                        <div class="summary-value">{{ metadata.page_count|default('Unbekannt') }}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Chunks</div>
+                        <div class="summary-value">{{ chunk_count }}</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Sprache</div>
+                        <div class="summary-value">
+                            {% if metadata.language == 'de' %}
+                                Deutsch
+                            {% elif metadata.language == 'en' %}
+                                Englisch
+                            {% else %}
+                                {{ metadata.language|default('Unbekannt') }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="summary-label">Hinzugefügt am</div>
+                        <div class="summary-value">{{ document.added_at|default('Unbekannt')|replace('T', ' ')|truncate(19, True, '') }}</div>
+                    </div>
+                </div>
+                
+                {% if metadata.doi or metadata.isbn %}
+                <div class="document-identifiers">
+                    {% if metadata.doi %}
+                    <div class="identifier-item">
+                        <span class="identifier-label">DOI:</span>
+                        <a href="https://doi.org/{{ metadata.doi }}" target="_blank" class="identifier-value">{{ metadata.doi }}</a>
+                    </div>
+                    {% endif %}
+                    
+                    {% if metadata.isbn %}
+                    <div class="identifier-item">
+                        <span class="identifier-label">ISBN:</span>
+                        <span class="identifier-value">{{ metadata.isbn }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                <div class="document-actions">
+                    {% if document.filepath.endswith('.pdf') %}
+                    <a href="{{ document.filepath }}" target="_blank" class="btn btn-primary">
+                        <i class="fas fa-file-pdf"></i> PDF öffnen
+                    </a>
+                    {% else %}
+                    <a href="{{ document.filepath }}" target="_blank" class="btn btn-primary">
+                        <i class="fas fa-file"></i> Datei öffnen
+                    </a>
+                    {% endif %}
+                    
+                    <button id="cite-document" class="btn btn-secondary">
+                        <i class="fas fa-quote-right"></i> Zitieren
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Citation Box (versteckt, wird per JavaScript gezeigt) -->
+            <div id="citation-box" class="citation-box" style="display: none;">
+                <div class="citation-header">
+                    <h3>Zitieren</h3>
+                    <button class="citation-close"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="citation-styles">
+                    <button class="citation-style-btn active" data-style="apa">APA</button>
+                    <button class="citation-style-btn" data-style="mla">MLA</button>
+                    <button class="citation-style-btn" data-style="chicago">Chicago</button>
+                    <button class="citation-style-btn" data-style="harvard">Harvard</button>
+                </div>
+                <div class="citation-content">
+                    <p id="citation-text">
+                        {% if metadata.author %}
+                        {{ metadata.author[0].split(' ')|last }}, 
+                        {% for author in metadata.author[1:] %}
+                            {% if loop.last and metadata.author|length > 1 %}
+                                & {{ author.split(' ')|last }}
+                            {% elif not loop.last %}
+                                {{ author.split(' ')|last }}, 
+                            {% endif %}
+                        {% endfor %}
+                        {% endif %}
+                        
+                        {% if metadata.year %}({{ metadata.year }}). {% endif %}
+                        
+                        <em>{{ metadata.title }}</em>. 
+                        
+                        {% if metadata.journal %}
+                            {{ metadata.journal }}
+                        {% elif metadata.publisher %}
+                            {{ metadata.publisher }}
+                        {% endif %}
+                        
+                        {% if metadata.doi %}
+                            https://doi.org/{{ metadata.doi }}
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="citation-actions">
+                    <button id="copy-citation" class="btn btn-text">
+                        <i class="fas fa-copy"></i> Kopieren
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Metadaten-Tab -->
+        <div id="metadata" class="tab-pane">
+            <div class="metadata-card">
+                <h3>Vollständige Metadaten</h3>
+                <div class="metadata-list">
+                    {% for key, value in metadata.items() %}
+                    <div class="metadata-item">
+                        <div class="metadata-key">{{ key }}</div>
+                        <div class="metadata-value">
+                            {% if value is iterable and value is not string %}
+                                {% if value is mapping %}
+                                    <!-- Verschachtelte Objekte -->
+                                    <pre>{{ value|tojson(indent=2) }}</pre>
+                                {% else %}
+                                    <!-- Listen -->
+                                    {{ value|join(", ") }}
+                                {% endif %}
+                            {% else %}
+                                {{ value }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="metadata-actions">
+                    <button id="edit-metadata" class="btn btn-secondary">
+                        <i class="fas fa-edit"></i> Metadaten bearbeiten
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Edit-Metadata-Form (versteckt, wird per JavaScript gezeigt) -->
+            <div id="metadata-form" class="metadata-form" style="display: none;">
+                <h3>Metadaten bearbeiten</h3>
+                <form id="edit-metadata-form">
+                    <div class="form-group">
+                        <label for="edit-title">Titel</label>
+                        <input type="text" id="edit-title" name="title" value="{{ metadata.title }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-authors">Autoren (durch Kommas getrennt)</label>
+                        <input type="text" id="edit-authors" name="authors" value="{{ metadata.author|join(', ') }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-year">Jahr</label>
+                        <input type="text" id="edit-year" name="year" value="{{ metadata.year }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-journal">Journal/Quelle</label>
+                        <input type="text" id="edit-journal" name="journal" value="{{ metadata.journal|default('') }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-publisher">Verlag</label>
+                        <input type="text" id="edit-publisher" name="publisher" value="{{ metadata.publisher|default('') }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-doi">DOI</label>
+                        <input type="text" id="edit-doi" name="doi" value="{{ metadata.doi|default('') }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-isbn">ISBN</label>
+                        <input type="text" id="edit-isbn" name="isbn" value="{{ metadata.isbn|default('') }}">
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Speichern</button>
+                        <button type="button" id="cancel-edit" class="btn btn-text">Abbrechen</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Chunks-Tab -->
+        <div id="chunks" class="tab-pane">
+            <div class="chunks-filter">
+                <input type="text" id="filter-chunks" placeholder="Chunks durchsuchen..." class="chunks-filter-input">
+                <span class="filter-count">{{ chunk_count }} Chunks</span>
+            </div>
+            
+            <div class="chunks-list">
+                {% for chunk in chunks %}
+                <div class="chunk-item">
+                    <div class="chunk-header">
+                        <div class="chunk-number">Chunk {{ chunk.chunk_id }}</div>
+                        <div class="chunk-language">
+                            {% if chunk.language == 'de' %}
+                                <i class="fas fa-language"></i> Deutsch
+                            {% elif chunk.language == 'en' %}
+                                <i class="fas fa-language"></i> Englisch
+                            {% else %}
+                                <i class="fas fa-language"></i> {{ chunk.language }}
+                            {% endif %}
+                        </div>
+                        <div class="chunk-tokens">
+                            <i class="fas fa-text-width"></i> {{ chunk.token_count }} Tokens
+                        </div>
+                    </div>
+                    <div class="chunk-text">
+                        {{ chunk.text }}
+                    </div>
+                    {% if chunk.entities %}
+                    <div class="chunk-entities">
+                        <div class="entities-header">Erkannte Entitäten:</div>
+                        <div class="entities-list">
+                            {% for type, entities in chunk.entities.items() %}
+                                <div class="entity-group">
+                                    <span class="entity-type">{{ type }}:</span>
+                                    <span class="entity-values">{{ entities|join(", ") }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- Vorschau-Tab -->
+        {% if document.filepath.endswith('.pdf') %}
+        <div id="preview" class="tab-pane">
+            <div class="pdf-preview">
+                <iframe src="{{ document.filepath }}" width="100%" height="800px"></iframe>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Verwalten-Tab -->
+        <div id="manage" class="tab-pane">
+            <div class="manage-card">
+                <h3>Dokument verwalten</h3>
+                
+                <div class="manage-actions">
+                    <button id="reprocess-document" class="btn btn-secondary">
+                        <i class="fas fa-sync"></i> Dokument neu verarbeiten
+                    </button>
+                    
+                    <button id="export-document" class="btn btn-secondary">
+                        <i class="fas fa-file-export"></i> Metadaten exportieren
+                    </button>
+                    
+                    <button id="delete-document" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Dokument löschen
+                    </button>
+                </div>
+                
+                <!-- Löschbestätigung (versteckt, wird per JavaScript gezeigt) -->
+                <div id="delete-confirmation" class="delete-confirmation" style="display: none;">
+                    <h4>Dokument löschen?</h4>
+                    <p>Möchtest du das Dokument "{{ metadata.title }}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden!</p>
+                    <div class="confirmation-actions">
+                        <button id="confirm-delete" class="btn btn-danger">Ja, löschen</button>
+                        <button id="cancel-delete" class="btn btn-text">Abbrechen</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Dokument-Detail-Seite Styles */
+    .document-tabs {
+        margin-bottom: var(--spacing-xl);
+        background-color: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+    }
+    
+    .tabs-nav {
+        display: flex;
+        background-color: var(--light-color);
+        border-bottom: 1px solid #ddd;
+        overflow-x: auto;
+    }
+    
+    .tab-link {
+        padding: var(--spacing-md) var(--spacing-lg);
+        color: var(--text-color);
+        text-decoration: none;
+        border-bottom: 3px solid transparent;
+        white-space: nowrap;
+    }
+    
+    .tab-link:hover {
+        background-color: rgba(0, 0, 0, 0.03);
+    }
+    
+    .tab-link.active {
+        border-bottom-color: var(--secondary-color);
+        color: var(--secondary-color);
+        font-weight: bold;
+    }
+    
+    .tab-link i {
+        margin-right: var(--spacing-xs);
+    }
+    
+    .tab-content {
+        padding: var(--spacing-lg);
+    }
+    
+    .tab-pane {
+        display: none;
+    }
+    
+    .tab-pane.active {
+        display: block;
+    }
+    
+    /* Übersichts-Tab */
+    .document-info-card {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .document-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .document-icon {
+        font-size: 2.5rem;
+        color: var(--primary-color);
+        margin-right: var(--spacing-md);
+    }
+    
+    .document-title-wrap h2 {
+        margin: 0 0 var(--spacing-xs);
+        color: var(--primary-color);
+    }
+    
+    .document-type {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        background-color: var(--light-color);
+        border-radius: var(--border-radius);
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+    
+    .document-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: var(--spacing-md);
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .summary-item {
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    .summary-label {
+        font-weight: bold;
+        color: var(--dark-color);
+        margin-bottom: var(--spacing-xs);
+    }
+    
+    .summary-value {
+        color: var(--text-color);
+    }
+    
+    .document-identifiers {
+        margin-bottom: var(--spacing-lg);
+        padding: var(--spacing-md);
+        background-color: var(--light-color);
+        border-radius: var(--border-radius);
+    }
+    
+    .identifier-item {
+        margin-bottom: var(--spacing-xs);
+    }
+    
+    .identifier-label {
+        font-weight: bold;
+        margin-right: var(--spacing-xs);
+    }
+    
+    .identifier-value {
+        font-family: monospace;
+    }
+    
+    .document-actions {
+        display: flex;
+        gap: var(--spacing-md);
+    }
+    
+    /* Citation Box */
+    .citation-box {
+        margin-top: var(--spacing-lg);
+        background-color: var(--light-color);
+        border-radius: var(--border-radius);
+        padding: var(--spacing-md);
+    }
+    
+    .citation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .citation-header h3 {
+        margin: 0;
+    }
+    
+    .citation-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 1.2rem;
+        color: var(--text-color);
+    }
+    
+    .citation-styles {
+        display: flex;
+        gap: var(--spacing-xs);
+        margin-bottom: var(--spacing-md);
+        flex-wrap: wrap;
+    }
+    
+    .citation-style-btn {
+        padding: var(--spacing-xs) var(--spacing-sm);
+        background: none;
+        border: 1px solid #ddd;
+        border-radius: var(--border-radius);
+        cursor: pointer;
+    }
+    
+    .citation-style-btn.active {
+        background-color: var(--secondary-color);
+        color: white;
+        border-color: var(--secondary-color);
+    }
+    
+    .citation-content {
+        background-color: white;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+        margin-bottom: var(--spacing-md);
+    }
+    
+    #citation-text {
+        margin: 0;
+        line-height: 1.6;
+    }
+    
+    /* Metadaten-Tab */
+    .metadata-card {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .metadata-list {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .metadata-item {
+        padding: var(--spacing-sm) 0;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .metadata-key {
+        flex: 0 0 200px;
+        font-weight: bold;
+        color: var(--dark-color);
+    }
+    
+    .metadata-value {
+        flex: 1;
+        min-width: 300px;
+        word-break: break-word;
+    }
+    
+    .metadata-value pre {
+        margin: 0;
+        background-color: var(--light-color);
+        padding: var(--spacing-sm);
+        border-radius: var(--border-radius);
+        overflow-x: auto;
+    }
+    
+    /* Metadaten-Formular */
+    .metadata-form {
+        background-color: var(--light-color);
+        padding: var(--spacing-lg);
+        border-radius: var(--border-radius);
+        margin-top: var(--spacing-lg);
+    }
+    
+    .form-group {
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: var(--spacing-xs);
+        font-weight: bold;
+    }
+    
+    .form-group input {
+        width: 100%;
+        padding: var(--spacing-sm);
+        border: 1px solid #ddd;
+        border-radius: var(--border-radius);
+    }
+    
+    .form-actions {
+        display: flex;
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+    }
+    
+    /* Chunks-Tab */
+    .chunks-filter {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .chunks-filter-input {
+        flex: 1;
+        padding: var(--spacing-sm);
+        border: 1px solid #ddd;
+        border-radius: var(--border-radius);
+        margin-right: var(--spacing-md);
+    }
+    
+    .filter-count {
+        color: var(--dark-color);
+        font-weight: bold;
+    }
+    
+    .chunks-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+    
+    .chunk-item {
+        background-color: var(--light-color);
+        border-radius: var(--border-radius);
+        padding: var(--spacing-md);
+    }
+    
+    .chunk-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: var(--spacing-sm);
+        flex-wrap: wrap;
+        gap: var(--spacing-sm);
+    }
+    
+    .chunk-number {
+        font-weight: bold;
+        color: var(--primary-color);
+    }
+    
+    .chunk-language {
+        color: var(--dark-color);
+    }
+    
+    .chunk-tokens {
+        color: var(--dark-color);
+    }
+    
+    .chunk-text {
+        background-color: white;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+        margin-bottom: var(--spacing-sm);
+        white-space: pre-line;
+        line-height: 1.6;
+    }
+    
+    .chunk-entities {
+        font-size: 0.9rem;
+    }
+    
+    .entities-header {
+        margin-bottom: var(--spacing-xs);
+        font-weight: bold;
+    }
+    
+    .entities-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--spacing-sm);
+    }
+    
+    .entity-group {
+        background-color: white;
+        padding: 2px 8px;
+        border-radius: var(--border-radius);
+    }
+    
+    .entity-type {
+        font-weight: bold;
+        margin-right: var(--spacing-xs);
+    }
+    
+    /* Verwalten-Tab */
+    .manage-card {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .manage-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+        max-width: 400px;
+    }
+    
+    .delete-confirmation {
+        margin-top: var(--spacing-lg);
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+    }
+    
+    .delete-confirmation h4 {
+        color: #721c24;
+        margin-top: 0;
+    }
+    
+    .confirmation-actions {
+        display: flex;
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-md);
+    }
+    
+    .btn-danger {
+        background-color: var(--error-color);
+        color: white;
+    }
+    
+    .btn-danger:hover {
+        background-color: #c82333;
+    }
+    
+    /* Responsive Anpassungen */
+    @media (max-width: 768px) {
+        .document-summary {
+            grid-template-columns: 1fr;
+        }
+        
+        .metadata-key, .metadata-value {
+            flex: 0 0 100%;
+        }
+        
+        .metadata-key {
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .document-actions, .citation-styles, .form-actions, .confirmation-actions {
+            flex-direction: column;
+        }
+        
+        .tab-link {
+            padding: var(--spacing-sm) var(--spacing-md);
+        }
+    }
+</style>
+{% endblock %}

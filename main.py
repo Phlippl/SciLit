@@ -1,13 +1,16 @@
 import os
 import datetime
-from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import logging
+
+# Eigene Module importieren
+from app.core.document_manager import get_document_manager
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -29,6 +32,9 @@ os.makedirs(TEMPLATES_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
+# Document Manager initialisieren
+document_manager = get_document_manager(BASE_DIR)
+
 # FastAPI-App erstellen
 app = FastAPI(title="SciLit", description="Wissenschaftliche Literaturverwaltung mit KI")
 
@@ -36,18 +42,14 @@ app = FastAPI(title="SciLit", description="Wissenschaftliche Literaturverwaltung
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Datenmodelle
-class SearchQuery(BaseModel):
-    query: str
-    limit: Optional[int] = 10
-
-class Document(BaseModel):
-    id: str
-    title: str
-    authors: List[str]
-    year: Optional[int] = None
-    source: str
-    file_path: str
+# Hintergrundverarbeitung von Dokumenten
+def process_document_task(filename: str, options: Dict[str, Any]):
+    """Verarbeitet ein Dokument im Hintergrund."""
+    try:
+        document_manager.process_document(filename, options)
+        logger.info(f"Dokument {filename} erfolgreich verarbeitet")
+    except Exception as e:
+        logger.error(f"Fehler bei der Verarbeitung von {filename}: {str(e)}")
 
 # Hilfsfunktion für Template-Kontext
 def get_base_context(request: Request):
@@ -61,6 +63,16 @@ def get_base_context(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     context = get_base_context(request)
+    
+    # Füge die neuesten Dokumente hinzu
+    documents = document_manager.get_all_documents()
+    # Sortiere nach Hinzufügedatum (neueste zuerst)
+    documents.sort(key=lambda x: x.get('added_at', ''), reverse=True)
+    # Beschränke auf die neuesten 4
+    recent_documents = documents[:4]
+    
+    context["recent_documents"] = recent_documents
+    
     return templates.TemplateResponse("index.html", context)
 
 @app.get("/upload", response_class=HTMLResponse)
@@ -69,9 +81,32 @@ async def upload_page(request: Request):
     return templates.TemplateResponse("upload.html", context)
 
 @app.post("/upload")
-async def upload_file(request: Request, files: List[UploadFile] = File(...)):
+async def upload_file(
+    request: Request, 
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    extract_metadata: bool = Form(True),
+    ocr_if_needed: bool = Form(True),
+    language: str = Form("auto"),
+    use_crossref: bool = Form(True),
+    use_openlib: bool = Form(True),
+    use_k10plus: bool = Form(True),
+    use_googlebooks: bool = Form(True),
+    use_openalex: bool = Form(True)
+):
     context = get_base_context(request)
     results = []
+    
+    # Verarbeitungsoptionen
+    processing_options = {
+        "ocr_if_needed": ocr_if_needed,
+        "language": language,
+        "use_crossref": use_crossref,
+        "use_openlib": use_openlib,
+        "use_k10plus": use_k10plus,
+        "use_googlebooks": use_googlebooks,
+        "use_openalex": use_openalex
+    }
     
     for file in files:
         try:
@@ -81,11 +116,15 @@ async def upload_file(request: Request, files: List[UploadFile] = File(...)):
                 contents = await file.read()
                 f.write(contents)
             
+            # Hintergrundverarbeitung starten
+            background_tasks.add_task(process_document_task, file.filename, processing_options)
+            
             # Ergebnis hinzufügen
             results.append({
                 "filename": file.filename,
                 "size": len(contents),
-                "status": "uploaded"
+                "status": "uploaded",
+                "message": "Dokument wurde hochgeladen und wird im Hintergrund verarbeitet."
             })
             logger.info(f"Datei hochgeladen: {file.filename}")
             
@@ -133,28 +172,127 @@ async def search_documents(request: Request, query: str = Form(...)):
 async def list_documents(request: Request):
     context = get_base_context(request)
     
-    # Dummy-Dokumente für den Anfang
-    documents = [
-        Document(
-            id="doc1",
-            title="Beispiel-Paper über KI",
-            authors=["Smith, J.", "Johnson, A."],
-            year=2023,
-            source="Journal of AI Research",
-            file_path="example1.pdf"
-        ),
-        Document(
-            id="doc2",
-            title="Maschinelles Lernen in der Praxis",
-            authors=["Müller, T."],
-            year=2022,
-            source="Springer",
-            file_path="example2.pdf"
-        )
-    ]
+    # Alle Dokumente aus dem Manager holen
+    documents = document_manager.get_all_documents()
+    
+    # Dokumente aufbereiten und nötige Felder hinzufügen
+    for doc in documents:
+        # Fehlende Felder mit Standardwerten auffüllen
+        if 'author' not in doc['metadata'] or not doc['metadata']['author']:
+            doc['metadata']['author'] = ['Unbekannt']
+        elif isinstance(doc['metadata']['author'], str):
+            doc['metadata']['author'] = [doc['metadata']['author']]
+            
+        if 'title' not in doc['metadata'] or not doc['metadata']['title']:
+            doc['metadata']['title'] = os.path.basename(doc['filename'])
+            
+        if 'year' not in doc['metadata'] or not doc['metadata']['year']:
+            doc['metadata']['year'] = 'Unbekannt'
+            
+        if 'source' not in doc['metadata'] or not doc['metadata']['source']:
+            if 'journal' in doc['metadata'] and doc['metadata']['journal']:
+                doc['metadata']['source'] = doc['metadata']['journal']
+            elif 'publisher' in doc['metadata'] and doc['metadata']['publisher']:
+                doc['metadata']['source'] = doc['metadata']['publisher']
+            else:
+                doc['metadata']['source'] = 'Unbekannt'
+    
+    # Statistiken
+    stats = document_manager.get_statistics()
     
     context["documents"] = documents
+    context["total_pages"] = stats["total_pages"]
+    context["total_chunks"] = stats["total_chunks"]
+    context["storage_used"] = stats["storage_used"]
+    
     return templates.TemplateResponse("documents.html", context)
+
+@app.get("/documents/{doc_id}", response_class=HTMLResponse)
+async def view_document(request: Request, doc_id: str):
+    context = get_base_context(request)
+    
+    # Dokument aus dem Manager holen
+    document = document_manager.get_document(doc_id)
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    
+    # Vollständige Metadaten und Chunks holen
+    metadata = document_manager.get_document_metadata(doc_id)
+    chunks = document_manager.get_document_chunks(doc_id)
+    
+    # Kontext vorbereiten
+    context["document"] = document
+    context["metadata"] = metadata
+    context["chunks"] = chunks
+    context["chunk_count"] = len(chunks)
+    
+    return templates.TemplateResponse("document_detail.html", context)
+
+@app.get("/documents/{doc_id}/metadata", response_class=JSONResponse)
+async def get_document_metadata(doc_id: str):
+    # Metadaten abrufen
+    metadata = document_manager.get_document_metadata(doc_id)
+    
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    
+    return metadata
+
+@app.post("/documents/{doc_id}/metadata")
+async def update_document_metadata(doc_id: str, metadata: Dict[str, Any]):
+    # Metadaten aktualisieren
+    success = document_manager.update_document_metadata(doc_id, metadata)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden oder Aktualisierung fehlgeschlagen")
+    
+    return {"status": "success", "message": "Metadaten aktualisiert"}
+
+# Diese Route zu main.py hinzufügen, nach der Definition der bestehenden Routen
+
+@app.post("/documents/{doc_id}/reprocess")
+async def reprocess_document(request: Request, doc_id: str, background_tasks: BackgroundTasks):
+    """Verarbeitet ein bestehendes Dokument neu mit dem DocumentProcessor."""
+    # Überprüfen, ob das Dokument existiert
+    document = document_manager.get_document(doc_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    
+    try:
+        # Dateinamen extrahieren
+        filename = document['filename']
+        
+        # Optionen für die Verarbeitung
+        options = {
+            "ocr_if_needed": True,
+            "language": document['metadata'].get('language', 'auto'),
+            "use_crossref": True,
+            "use_openlib": True,
+            "use_k10plus": True,
+            "use_googlebooks": True,
+            "use_openalex": True
+        }
+        
+        # Verarbeitung im Hintergrund starten
+        background_tasks.add_task(process_document_task, filename, options)
+        
+        return {"status": "success", "message": f"Dokument {filename} wird im Hintergrund neu verarbeitet."}
+    
+    except Exception as e:
+        logger.error(f"Fehler bei der Neuverarbeitung von {doc_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fehler bei der Neuverarbeitung: {str(e)}")
+
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str):
+    # Dokument löschen
+    success = document_manager.delete_document(doc_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden oder Löschung fehlgeschlagen")
+    
+    return {"status": "success", "message": "Dokument gelöscht"}
 
 if __name__ == "__main__":
     # Browser automatisch öffnen (optional)

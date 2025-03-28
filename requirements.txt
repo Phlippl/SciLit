@@ -1,4 +1,11 @@
-# Projektanforderungen hier eintragen
+# Grundlegende WebApp
+fastapi>=0.103.1
+uvicorn>=0.23.2
+jinja2>=3.1.2
+python-multipart>=0.0.6
+pydantic>=2.3.0
+python-dotenv>=1.0.0
+
 # Dokumentenverarbeitung
 spacy>=3.6.0
 python-docx>=0.8.11
@@ -7,7 +14,11 @@ pytesseract>=0.3.10
 pillow>=10.0.0
 mammoth>=1.6.0
 epub2txt>=0.1.6
+# ebooklib wird von epub2txt direkt mitgebracht - nicht separat installieren
 python-pptx>=0.6.21
+pymupdf>=1.22.0  # Enthält das fitz-Modul
+pdf2image>=1.16.3  # Alternative zu PyMuPDF
+# poppler-utils ist ein Systempaket - installiere es manuell wenn nötig
 
 # NLP und Vektorisierung
 langchain>=0.0.284
@@ -18,13 +29,6 @@ chromadb>=0.4.13
 # LLM Interface
 ollama>=0.1.5
 
-# Web-Interface
-fastapi>=0.103.1
-uvicorn>=0.23.2
-jinja2>=3.1.2
-python-multipart>=0.0.6
-
 # Hilfsbibliotheken
 tqdm>=4.66.1
-pydantic>=2.3.0
-python-dotenv>=1.0.0
+requests>=2.31.0  # Für API-Abfragen
