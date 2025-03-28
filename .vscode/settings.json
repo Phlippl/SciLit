@@ -10,5 +10,9 @@
             ]
         }
     },
-    "terminal.integrated.defaultProfile.windows": "Venv"
+    "terminal.integrated.defaultProfile.windows": "Venv",
+    "git.autofetch": true
 }
+
+
+    
