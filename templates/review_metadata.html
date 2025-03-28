@@ -1,0 +1,487 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Metadaten überprüfen{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1><i class="fas fa-check-circle"></i> Metadaten überprüfen</h1>
+    <p>Überprüfen und bearbeiten Sie die extrahierten Metadaten, bevor die Dokumente verarbeitet werden.</p>
+</section>
+
+<section class="review-section">
+    <form id="review-form" class="review-form">
+        <input type="hidden" id="session-id" name="session_id" value="{{ session_id }}">
+        
+        {% for file in uploaded_files %}
+        <div class="file-metadata-card" data-filename="{{ file.filename }}">
+            <div class="file-header">
+                <div class="file-icon">
+                    {% if file.filename.endswith('.pdf') %}
+                    <i class="fas fa-file-pdf"></i>
+                    {% elif file.filename.endswith('.epub') %}
+                    <i class="fas fa-book"></i>
+                    {% elif file.filename.endswith('.docx') %}
+                    <i class="fas fa-file-word"></i>
+                    {% elif file.filename.endswith('.pptx') %}
+                    <i class="fas fa-file-powerpoint"></i>
+                    {% else %}
+                    <i class="fas fa-file-alt"></i>
+                    {% endif %}
+                </div>
+                <div class="file-info">
+                    <h2 class="file-name">{{ file.filename }}</h2>
+                    <p class="file-size">{{ (file.size / 1024)|round(2) }} KB</p>
+                </div>
+            </div>
+            
+            {% if file.status == 'failed' %}
+            <div class="error-message">
+                <i class="fas fa-exclamation-circle"></i>
+                Fehler bei der Metadatenextraktion: {{ file.error }}
+            </div>
+            {% else %}
+            <div class="metadata-fields">
+                <input type="hidden" name="upload_id" value="{{ file.upload_id }}">
+                
+                <div class="form-group">
+                    <label for="title-{{ loop.index }}">Titel</label>
+                    <input type="text" id="title-{{ loop.index }}" name="title" class="form-control" value="{{ file.metadata.title|default('') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="authors-{{ loop.index }}">Autoren (durch Kommas getrennt)</label>
+                    <input type="text" id="authors-{{ loop.index }}" name="authors" class="form-control" value="{% if file.metadata.author is defined %}{% if file.metadata.author is string %}{{ file.metadata.author }}{% else %}{{ file.metadata.author|join(', ') }}{% endif %}{% endif %}">
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="year-{{ loop.index }}">Jahr</label>
+                        <input type="text" id="year-{{ loop.index }}" name="year" class="form-control" value="{{ file.metadata.year|default('') }}">
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label for="language-{{ loop.index }}">Sprache</label>
+                        <select id="language-{{ loop.index }}" name="language" class="form-control">
+                            <option value="auto" {% if file.metadata.language|default('auto') == 'auto' %}selected{% endif %}>Automatisch erkennen</option>
+                            <option value="de" {% if file.metadata.language|default('') == 'de' %}selected{% endif %}>Deutsch</option>
+                            <option value="en" {% if file.metadata.language|default('') == 'en' %}selected{% endif %}>Englisch</option>
+                            <option value="mixed" {% if file.metadata.language|default('') == 'mixed' %}selected{% endif %}>Gemischt (Deutsch & Englisch)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="journal-{{ loop.index }}">Journal/Quelle</label>
+                    <input type="text" id="journal-{{ loop.index }}" name="journal" class="form-control" value="{{ file.metadata.journal|default('') }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="publisher-{{ loop.index }}">Verlag</label>
+                    <input type="text" id="publisher-{{ loop.index }}" name="publisher" class="form-control" value="{{ file.metadata.publisher|default('') }}">
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="doi-{{ loop.index }}">DOI</label>
+                        <input type="text" id="doi-{{ loop.index }}" name="doi" class="form-control" value="{{ file.metadata.doi|default('') }}">
+                    </div>
+                    
+                    <div class="form-group half">
+                        <label for="isbn-{{ loop.index }}">ISBN</label>
+                        <input type="text" id="isbn-{{ loop.index }}" name="isbn" class="form-control" value="{{ file.metadata.isbn|default('') }}">
+                    </div>
+                </div>
+                
+                <div class="additional-metadata">
+                    <div class="collapse-trigger" data-toggle="additional-meta-{{ loop.index }}">
+                        <i class="fas fa-chevron-down"></i> Weitere Metadaten anzeigen
+                    </div>
+                    <div id="additional-meta-{{ loop.index }}" class="additional-content" style="display: none;">
+                        <pre class="raw-metadata">{{ file.metadata|tojson(indent=2) }}</pre>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        
+        <div class="review-actions">
+            <button type="button" id="process-button" class="btn btn-primary">
+                <i class="fas fa-check"></i> Metadaten bestätigen und Dokumente verarbeiten
+            </button>
+            <a href="/upload" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Zurück zum Upload
+            </a>
+        </div>
+    </form>
+    
+    <div id="processing-status" class="processing-status" style="display: none;">
+        <div class="status-header">
+            <h3><i class="fas fa-spinner fa-spin"></i> Dokumente werden verarbeitet</h3>
+            <p>Ihre Dokumente werden verarbeitet und in Ihre Bibliothek aufgenommen. Dies kann einige Momente dauern.</p>
+        </div>
+        <div id="status-messages" class="status-messages"></div>
+        <div class="status-actions">
+            <a href="/documents" class="btn btn-primary">
+                <i class="fas fa-book"></i> Zu Meinen Dokumenten
+            </a>
+            <a href="/upload" class="btn btn-secondary">
+                <i class="fas fa-upload"></i> Weitere Dokumente hochladen
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Metadaten-Überprüfung Styles */
+    .review-section {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    
+    .file-metadata-card {
+        background: white;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .file-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: var(--spacing-md);
+        padding-bottom: var(--spacing-md);
+        border-bottom: 1px solid #eee;
+    }
+    
+    .file-icon {
+        font-size: 2rem;
+        color: var(--primary-color);
+        margin-right: var(--spacing-md);
+    }
+    
+    .file-name {
+        margin: 0 0 var(--spacing-xs);
+        font-size: 1.2rem;
+    }
+    
+    .file-size {
+        color: #666;
+        margin: 0;
+        font-size: 0.9rem;
+    }
+    
+    .error-message {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .error-message i {
+        margin-right: var(--spacing-sm);
+    }
+    
+    .metadata-fields {
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .form-group {
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .form-row {
+        display: flex;
+        gap: var(--spacing-md);
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .form-group.half {
+        flex: 1;
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: var(--spacing-xs);
+        font-weight: bold;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: var(--spacing-sm);
+        border: 1px solid #ddd;
+        border-radius: var(--border-radius);
+        font-family: inherit;
+        font-size: 1rem;
+    }
+    
+    .additional-metadata {
+        margin-top: var(--spacing-md);
+        border-top: 1px solid #eee;
+        padding-top: var(--spacing-md);
+    }
+    
+    .collapse-trigger {
+        color: var(--secondary-color);
+        cursor: pointer;
+    }
+    
+    .raw-metadata {
+        margin-top: var(--spacing-sm);
+        background-color: #f8f9fa;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+        overflow-x: auto;
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .review-actions {
+        display: flex;
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    /* Verarbeitungsstatus */
+    .processing-status {
+        background: white;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .status-header {
+        text-align: center;
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .status-header h3 {
+        margin-bottom: var(--spacing-sm);
+        color: var(--primary-color);
+    }
+    
+    .status-messages {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .status-message {
+        padding: var(--spacing-sm);
+        margin-bottom: var(--spacing-sm);
+        border-radius: var(--border-radius);
+        display: flex;
+        align-items: center;
+    }
+    
+    .status-message.success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    
+    .status-message.error {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+    
+    .status-message.pending {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+    
+    .status-message-icon {
+        margin-right: var(--spacing-md);
+        font-size: 1.2rem;
+    }
+    
+    .status-actions {
+        display: flex;
+        justify-content: center;
+        gap: var(--spacing-md);
+    }
+    
+    /* Responsive Anpassungen */
+    @media (max-width: 768px) {
+        .form-row {
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+        
+        .review-actions {
+            flex-direction: column;
+        }
+        
+        .status-actions {
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Collapse-Trigger für zusätzliche Metadaten
+        const collapseTriggers = document.querySelectorAll('.collapse-trigger');
+        
+        collapseTriggers.forEach(trigger => {
+            trigger.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-toggle');
+                const targetElement = document.getElementById(targetId);
+                
+                if (targetElement) {
+                    const isVisible = targetElement.style.display !== 'none';
+                    
+                    if (isVisible) {
+                        targetElement.style.display = 'none';
+                        this.innerHTML = '<i class="fas fa-chevron-down"></i> Weitere Metadaten anzeigen';
+                    } else {
+                        targetElement.style.display = 'block';
+                        this.innerHTML = '<i class="fas fa-chevron-up"></i> Weitere Metadaten ausblenden';
+                    }
+                }
+            });
+        });
+        
+        // Verarbeitung starten
+        const processButton = document.getElementById('process-button');
+        const reviewForm = document.getElementById('review-form');
+        const processingStatus = document.getElementById('processing-status');
+        const statusMessages = document.getElementById('status-messages');
+        const sessionId = document.getElementById('session-id').value;
+        
+        processButton.addEventListener('click', async function() {
+            // Daten sammeln
+            const fileCards = document.querySelectorAll('.file-metadata-card');
+            const files = [];
+            
+            fileCards.forEach((card, index) => {
+                const filename = card.getAttribute('data-filename');
+                
+                // Prüfe, ob ein Fehler vorliegt
+                if (card.querySelector('.error-message')) {
+                    return; // Diese Datei überspringen
+                }
+                
+                // Metadaten sammeln
+                const metadata = {
+                    title: document.getElementById(`title-${index + 1}`).value,
+                    author: document.getElementById(`authors-${index + 1}`).value.split(',').map(a => a.trim()),
+                    year: document.getElementById(`year-${index + 1}`).value,
+                    journal: document.getElementById(`journal-${index + 1}`).value,
+                    publisher: document.getElementById(`publisher-${index + 1}`).value,
+                    doi: document.getElementById(`doi-${index + 1}`).value,
+                    isbn: document.getElementById(`isbn-${index + 1}`).value,
+                    language: document.getElementById(`language-${index + 1}`).value
+                };
+                
+                // Optionen aus den verborgenen Daten holen
+                // Für jetzt vereinfacht, später müsste man die tatsächlichen Optionen mitnehmen
+                files.push({
+                    filename: filename,
+                    metadata: metadata,
+                    options: {
+                        ocr_if_needed: true,
+                        language: metadata.language,
+                        use_crossref: true,
+                        use_openlib: true,
+                        use_k10plus: true,
+                        use_googlebooks: true,
+                        use_openalex: true
+                    }
+                });
+            });
+            
+            // Formulardaten vorbereiten
+            const formData = new FormData();
+            formData.append('session_id', sessionId);
+            formData.append('file_data', JSON.stringify(files));
+            
+            try {
+                // Formular ausblenden, Verarbeitungsstatus anzeigen
+                reviewForm.style.display = 'none';
+                processingStatus.style.display = 'block';
+                
+                // Status-Nachrichten initialisieren
+                statusMessages.innerHTML = '';
+                files.forEach(file => {
+                    statusMessages.innerHTML += `
+                        <div class="status-message pending" id="status-${file.filename.replace(/\./g, '-')}">
+                            <div class="status-message-icon">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </div>
+                            <div class="status-message-text">
+                                ${file.filename} wird verarbeitet...
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                // Dateien verarbeiten
+                const response = await fetch('/process-reviewed-files', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Status-Nachrichten aktualisieren
+                    result.results.forEach(fileResult => {
+                        const statusElement = document.getElementById(`status-${fileResult.filename.replace(/\./g, '-')}`);
+                        
+                        if (statusElement) {
+                            if (fileResult.status === 'processing') {
+                                statusElement.classList.remove('pending');
+                                statusElement.classList.add('success');
+                                statusElement.innerHTML = `
+                                    <div class="status-message-icon">
+                                        <i class="fas fa-check-circle"></i>
+                                    </div>
+                                    <div class="status-message-text">
+                                        ${fileResult.filename} wird im Hintergrund verarbeitet und in Ihre Bibliothek aufgenommen.
+                                    </div>
+                                `;
+                            } else if (fileResult.status === 'failed') {
+                                statusElement.classList.remove('pending');
+                                statusElement.classList.add('error');
+                                statusElement.innerHTML = `
+                                    <div class="status-message-icon">
+                                        <i class="fas fa-times-circle"></i>
+                                    </div>
+                                    <div class="status-message-text">
+                                        Fehler bei der Verarbeitung von ${fileResult.filename}: ${fileResult.error || 'Unbekannter Fehler'}
+                                    </div>
+                                `;
+                            }
+                        }
+                    });
+                } else {
+                    throw new Error(result.error || 'Ein unbekannter Fehler ist aufgetreten.');
+                }
+                
+            } catch (error) {
+                console.error('Fehler:', error);
+                
+                // Fehlermeldung anzeigen
+                statusMessages.innerHTML = `
+                    <div class="status-message error">
+                        <div class="status-message-icon">
+                            <i class="fas fa-exclamation-circle"></i>
+                        </div>
+                        <div class="status-message-text">
+                            Fehler bei der Verarbeitung: ${error.message || 'Ein unbekannter Fehler ist aufgetreten.'}
+                        </div>
+                    </div>
+                `;
+            }
+        });
+    });
+</script>
+{% endblock %}

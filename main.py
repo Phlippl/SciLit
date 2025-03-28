@@ -8,6 +8,8 @@ import uvicorn
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import logging
+import uuid
+import json
 
 # Eigene Module importieren
 from app.core.document_manager import get_document_manager
@@ -83,7 +85,7 @@ async def upload_page(request: Request):
 @app.post("/upload")
 async def upload_file(
     request: Request, 
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks,  # Parameter hinzugefügt
     files: List[UploadFile] = File(...),
     extract_metadata: bool = Form(True),
     ocr_if_needed: bool = Form(True),
@@ -92,7 +94,8 @@ async def upload_file(
     use_openlib: bool = Form(True),
     use_k10plus: bool = Form(True),
     use_googlebooks: bool = Form(True),
-    use_openalex: bool = Form(True)
+    use_openalex: bool = Form(True),
+    skip_review: bool = Form(False)
 ):
     context = get_base_context(request)
     results = []
@@ -108,36 +111,38 @@ async def upload_file(
         "use_openalex": use_openalex
     }
     
-    for file in files:
-        try:
-            # Datei speichern
-            file_path = os.path.join(UPLOAD_DIR, file.filename)
-            with open(file_path, "wb") as f:
-                contents = await file.read()
-                f.write(contents)
-            
-            # Hintergrundverarbeitung starten
-            background_tasks.add_task(process_document_task, file.filename, processing_options)
-            
-            # Ergebnis hinzufügen
-            results.append({
-                "filename": file.filename,
-                "size": len(contents),
-                "status": "uploaded",
-                "message": "Dokument wurde hochgeladen und wird im Hintergrund verarbeitet."
-            })
-            logger.info(f"Datei hochgeladen: {file.filename}")
-            
-        except Exception as e:
-            logger.error(f"Fehler beim Upload von {file.filename}: {str(e)}")
-            results.append({
-                "filename": file.filename,
-                "error": str(e),
-                "status": "failed"
-            })
-    
-    context["results"] = results
-    return templates.TemplateResponse("upload.html", context)
+    # Wenn skip_review wahr ist, werden die Dateien direkt verarbeitet
+    if skip_review:
+        for file in files:
+            try:
+                # Datei speichern
+                file_path = os.path.join(UPLOAD_DIR, file.filename)
+                with open(file_path, "wb") as f:
+                    contents = await file.read()
+                    f.write(contents)
+                
+                # Hintergrundverarbeitung starten
+                background_tasks.add_task(process_document_task, file.filename, processing_options)  # Hier background_tasks korrekt verwenden
+                
+                # Ergebnis hinzufügen
+                results.append({
+                    "filename": file.filename,
+                    "size": len(contents),
+                    "status": "uploaded",
+                    "message": "Dokument wurde hochgeladen und wird im Hintergrund verarbeitet."
+                })
+                logger.info(f"Datei hochgeladen: {file.filename}")
+                
+            except Exception as e:
+                logger.error(f"Fehler beim Upload von {file.filename}: {str(e)}")
+                results.append({
+                    "filename": file.filename,
+                    "error": str(e),
+                    "status": "failed"
+                })
+        
+        context["results"] = results
+        return templates.TemplateResponse("upload.html", context)
 
 @app.get("/search", response_class=HTMLResponse)
 async def search_page(request: Request):
@@ -294,6 +299,155 @@ async def delete_document(doc_id: str):
     
     return {"status": "success", "message": "Dokument gelöscht"}
 
+
+@app.post("/extract-metadata")
+async def extract_metadata(
+    request: Request,
+    file: UploadFile = File(...)
+):
+    """
+    Extrahiert Metadaten aus einer PDF-Datei, ohne sie vollständig zu verarbeiten.
+    Gibt die extrahierten Metadaten zurück, damit der Benutzer sie überprüfen und bearbeiten kann.
+    """
+    context = get_base_context(request)
+    
+    try:
+        # Temporäres Speichern der hochgeladenen Datei
+        temp_file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
+        with open(temp_file_path, "wb") as f:
+            contents = await file.read()
+            f.write(contents)
+        
+        # Metadaten extrahieren mit dem DocumentProcessor
+        processor = document_manager.processor
+        text, basic_metadata = processor.extract_content_and_metadata(temp_file_path)
+        
+        # Erweiterte Metadaten über APIs abrufen
+        enhanced_metadata = processor.enhance_metadata(basic_metadata)
+        
+        # Löschen der temporären Datei
+        os.remove(temp_file_path)
+        
+        # Rückgabe der extrahierten Metadaten
+        return {
+            "success": True,
+            "filename": file.filename,
+            "metadata": enhanced_metadata
+        }
+        
+    except Exception as e:
+        logger.error(f"Fehler bei der Metadatenextraktion von {file.filename}: {str(e)}")
+        
+        # Versuche, die temporäre Datei zu löschen, falls sie noch existiert
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+            
+        return {
+            "success": False,
+            "filename": file.filename,
+            "error": str(e)
+        }
+    
+    # Neuer Endpunkt für die Metadaten-Extraktionsseite
+# Diese Funktion in die main.py Datei nach den bestehenden Routen einfügen
+
+@app.get("/extract-metadata", response_class=HTMLResponse)
+async def extract_metadata_page(request: Request):
+    """Zeigt die Seite zur Extraktion von Metadaten aus PDF-Dateien an."""
+    context = get_base_context(request)
+    return templates.TemplateResponse("extract_metadata.html", context)
+
+@app.get("/review-metadata", response_class=HTMLResponse)
+async def review_metadata_page(request: Request, session: str):
+    """Zeigt die Seite zur Überprüfung der extrahierten Metadaten aus hochgeladenen Dokumenten an."""
+    context = get_base_context(request)
+    
+    # Session-Daten laden
+    session_file = os.path.join(UPLOAD_DIR, f"session_{session}.json")
+    
+    if not os.path.exists(session_file):
+        # Wenn die Session nicht existiert, zurück zur Upload-Seite leiten
+        logger.error(f"Session-Datei nicht gefunden: {session_file}")
+        return RedirectResponse(url="/upload", status_code=303)
+    
+    try:
+        with open(session_file, 'r', encoding='utf-8') as f:
+            uploaded_files_data = json.load(f)
+        
+        context["session_id"] = session
+        context["uploaded_files"] = uploaded_files_data
+        
+        return templates.TemplateResponse("review_metadata.html", context)
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Laden der Session-Daten: {str(e)}")
+        return RedirectResponse(url="/upload", status_code=303)
+
+@app.post("/process-reviewed-files")
+async def process_reviewed_files(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    session_id: str = Form(...),
+    file_data: str = Form(...)  # JSON-String mit den überprüften Metadaten
+):
+    """Verarbeitet die überprüften Dateien mit ihren aktualisierten Metadaten."""
+    context = get_base_context(request)
+    
+    # Session-Datei finden
+    session_file = os.path.join(UPLOAD_DIR, f"session_{session_id}.json")
+    
+    if not os.path.exists(session_file):
+        return JSONResponse(content={
+            "success": False,
+            "error": "Session nicht gefunden."
+        })
+    
+    try:
+        # Überprüfte Dateidaten verarbeiten
+        reviewed_files = json.loads(file_data)
+        results = []
+        
+        for file_info in reviewed_files:
+            try:
+                filename = file_info["filename"]
+                options = file_info["options"]
+                
+                # Starte die Verarbeitung im Hintergrund
+                background_tasks.add_task(process_document_task, filename, options)
+                
+                results.append({
+                    "filename": filename,
+                    "status": "processing"
+                })
+                
+            except Exception as e:
+                logger.error(f"Fehler bei der Verarbeitung von {file_info.get('filename', 'unbekannt')}: {str(e)}")
+                results.append({
+                    "filename": file_info.get('filename', 'unbekannt'),
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        # Session-Datei löschen
+        try:
+            os.remove(session_file)
+        except:
+            logger.warning(f"Konnte Session-Datei nicht löschen: {session_file}")
+        
+        # Erfolgsmeldung zurückgeben
+        return JSONResponse(content={
+            "success": True,
+            "message": "Dateien werden verarbeitet und in die Bibliothek aufgenommen.",
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Verarbeiten der überprüften Dateien: {str(e)}")
+        return JSONResponse(content={
+            "success": False,
+            "error": str(e)
+        })
+    
 if __name__ == "__main__":
     # Browser automatisch öffnen (optional)
     import webbrowser

@@ -20,6 +20,7 @@
                 <ul>
                     <li><a href="/" {% if request.url.path == "/" %}class="active"{% endif %}><i class="fas fa-home"></i> Startseite</a></li>
                     <li><a href="/upload" {% if request.url.path == "/upload" %}class="active"{% endif %}><i class="fas fa-upload"></i> Dokumente hochladen</a></li>
+                    <li><a href="/extract-metadata" {% if request.url.path == "/extract-metadata" %}class="active"{% endif %}><i class="fas fa-tags"></i> Metadaten extrahieren</a></li>
                     <li><a href="/search" {% if request.url.path == "/search" %}class="active"{% endif %}><i class="fas fa-search"></i> Suche & Fragen</a></li>
                     <li><a href="/documents" {% if request.url.path == "/documents" %}class="active"{% endif %}><i class="fas fa-book"></i> Meine Dokumente</a></li>
                 </ul>

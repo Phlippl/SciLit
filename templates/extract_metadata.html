@@ -1,0 +1,667 @@
+{% extends "base.html" %}
+
+{% block title %}SciLit - Metadaten extrahieren{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1><i class="fas fa-tags"></i> Metadaten extrahieren</h1>
+    <p>Lade eine PDF-Datei hoch, um ihre Metadaten zu extrahieren und zu überprüfen, bevor du sie in deine Bibliothek aufnimmst.</p>
+</section>
+
+<section class="metadata-extraction">
+    <div class="extraction-area">
+        <form id="metadata-form" class="metadata-upload-form" enctype="multipart/form-data">
+            <div class="file-drop-area" id="file-drop-area">
+                <i class="fas fa-file-pdf file-icon"></i>
+                <p>PDF-Datei hierher ziehen oder <label for="pdf-file-input" class="file-select-link">Datei auswählen</label></p>
+                <input type="file" id="pdf-file-input" name="file" accept=".pdf" style="display: none;">
+            </div>
+            
+            <div class="selected-file" id="selected-file-container" style="display: none;">
+                <!-- Hier wird die ausgewählte Datei angezeigt -->
+            </div>
+            
+            <div class="upload-actions">
+                <button type="submit" class="btn btn-primary" id="extract-button" disabled>
+                    <i class="fas fa-tags"></i> Metadaten extrahieren
+                </button>
+                <button type="reset" class="btn btn-text" id="reset-button">
+                    <i class="fas fa-times"></i> Zurücksetzen
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <div id="loading-indicator" style="display: none;" class="loading-container">
+        <div class="loading-spinner"></div>
+        <p>Metadaten werden extrahiert und über APIs abgerufen...</p>
+    </div>
+    
+    <div id="metadata-results" class="metadata-results" style="display: none;">
+        <h2>Extrahierte Metadaten</h2>
+        <p class="hint">Du kannst die Metadaten überprüfen und bei Bedarf bearbeiten, bevor du die Datei in deine Bibliothek aufnimmst.</p>
+        
+        <form id="save-metadata-form" class="metadata-edit-form">
+            <input type="hidden" id="result-filename" name="filename">
+            
+            <div class="metadata-fields">
+                <div class="form-group">
+                    <label for="edit-title">Titel</label>
+                    <input type="text" id="edit-title" name="title" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-authors">Autoren (durch Kommas getrennt)</label>
+                    <input type="text" id="edit-authors" name="authors" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-year">Jahr</label>
+                    <input type="text" id="edit-year" name="year" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-journal">Journal/Quelle</label>
+                    <input type="text" id="edit-journal" name="journal" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-publisher">Verlag</label>
+                    <input type="text" id="edit-publisher" name="publisher" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-doi">DOI</label>
+                    <input type="text" id="edit-doi" name="doi" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-isbn">ISBN</label>
+                    <input type="text" id="edit-isbn" name="isbn" class="form-control">
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-language">Sprache</label>
+                    <select id="edit-language" name="language" class="form-control">
+                        <option value="auto">Automatisch erkennen</option>
+                        <option value="de">Deutsch</option>
+                        <option value="en">Englisch</option>
+                        <option value="mixed">Gemischt (Deutsch & Englisch)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="metadata-actions">
+                <button type="button" id="process-and-save" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Verarbeiten und in Bibliothek speichern
+                </button>
+                <button type="button" id="extract-again" class="btn btn-secondary">
+                    <i class="fas fa-redo"></i> Neue Datei hochladen
+                </button>
+            </div>
+        </form>
+        
+        <div class="metadata-raw">
+            <h3>Alle extrahierten Metadaten</h3>
+            <div class="collapse-trigger" data-toggle="raw-metadata-container">
+                <i class="fas fa-chevron-down"></i> Vollständige Metadaten anzeigen
+            </div>
+            <pre id="raw-metadata-container" class="raw-metadata" style="display: none;"></pre>
+        </div>
+    </div>
+    
+    <div id="extraction-error" class="extraction-error" style="display: none;">
+        <div class="error-icon"><i class="fas fa-exclamation-circle"></i></div>
+        <h3>Fehler bei der Metadatenextraktion</h3>
+        <p id="error-message">Es ist ein Fehler aufgetreten.</p>
+        <button type="button" id="try-again" class="btn btn-primary">
+            <i class="fas fa-redo"></i> Erneut versuchen
+        </button>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Metadaten-Extraktion Styles */
+    .metadata-extraction {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .extraction-area {
+        background: white;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .file-drop-area {
+        border: 2px dashed #ccc;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-xl);
+        text-align: center;
+        margin-bottom: var(--spacing-lg);
+        transition: border-color 0.3s, background-color 0.3s;
+        cursor: pointer;
+    }
+    
+    .file-drop-area.highlight {
+        border-color: var(--secondary-color);
+        background-color: rgba(52, 152, 219, 0.05);
+    }
+    
+    .file-icon {
+        font-size: 3rem;
+        color: #ccc;
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .file-select-link {
+        color: var(--secondary-color);
+        cursor: pointer;
+        text-decoration: underline;
+    }
+    
+    .selected-file {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .file-item {
+        display: flex;
+        align-items: center;
+        background: rgba(52, 152, 219, 0.05);
+        padding: var(--spacing-sm);
+        border-radius: var(--border-radius);
+    }
+    
+    .file-item-icon {
+        margin-right: var(--spacing-md);
+        color: var(--secondary-color);
+        font-size: 1.5rem;
+    }
+    
+    .file-name {
+        font-weight: 600;
+    }
+    
+    .file-size {
+        font-size: 0.8rem;
+        color: #666;
+    }
+    
+    .upload-actions {
+        display: flex;
+        gap: var(--spacing-md);
+    }
+    
+    /* Loading-Indikator */
+    .loading-container {
+        text-align: center;
+        padding: var(--spacing-lg);
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 5px solid #f3f3f3;
+        border-top: 5px solid var(--secondary-color);
+        border-radius: 50%;
+        margin: 0 auto var(--spacing-md);
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    /* Metadaten-Ergebnisse */
+    .metadata-results {
+        background: white;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-lg);
+        margin-bottom: var(--spacing-lg);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .hint {
+        color: #666;
+        font-style: italic;
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .metadata-fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: var(--spacing-md);
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .form-group {
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: var(--spacing-xs);
+        font-weight: bold;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: var(--spacing-sm);
+        border: 1px solid #ddd;
+        border-radius: var(--border-radius);
+        font-family: inherit;
+        font-size: 1rem;
+    }
+    
+    .metadata-actions {
+        display: flex;
+        gap: var(--spacing-md);
+        margin-top: var(--spacing-lg);
+    }
+    
+    .metadata-raw {
+        margin-top: var(--spacing-lg);
+        border-top: 1px solid #eee;
+        padding-top: var(--spacing-md);
+    }
+    
+    .collapse-trigger {
+        color: var(--secondary-color);
+        cursor: pointer;
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    .raw-metadata {
+        background-color: #f8f9fa;
+        padding: var(--spacing-md);
+        border-radius: var(--border-radius);
+        overflow-x: auto;
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    /* Fehler-Anzeige */
+    .extraction-error {
+        background: #fff5f5;
+        border: 1px solid #f5c6cb;
+        border-radius: var(--border-radius);
+        padding: var(--spacing-lg);
+        text-align: center;
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    .error-icon {
+        font-size: 3rem;
+        color: var(--error-color);
+        margin-bottom: var(--spacing-md);
+    }
+    
+    .extraction-error h3 {
+        color: var(--error-color);
+        margin-bottom: var(--spacing-sm);
+    }
+    
+    #error-message {
+        margin-bottom: var(--spacing-lg);
+    }
+    
+    /* Responsive Anpassungen */
+    @media (max-width: 768px) {
+        .metadata-fields {
+            grid-template-columns: 1fr;
+        }
+        
+        .upload-actions, .metadata-actions {
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Elemente abrufen
+        const metadataForm = document.getElementById('metadata-form');
+        const fileInput = document.getElementById('pdf-file-input');
+        const dropArea = document.getElementById('file-drop-area');
+        const selectedFileContainer = document.getElementById('selected-file-container');
+        const extractButton = document.getElementById('extract-button');
+        const resetButton = document.getElementById('reset-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const metadataResults = document.getElementById('metadata-results');
+        const extractionError = document.getElementById('extraction-error');
+        const errorMessage = document.getElementById('error-message');
+        const tryAgainButton = document.getElementById('try-again');
+        const extractAgainButton = document.getElementById('extract-again');
+        const rawMetadataContainer = document.getElementById('raw-metadata-container');
+        const resultFilename = document.getElementById('result-filename');
+        
+        // Dateieingabefeld aufrufen, wenn auf den Dropbereich geklickt wird
+        dropArea.addEventListener('click', function() {
+            fileInput.click();
+        });
+        
+        // Drag & Drop-Funktionalität
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.classList.add('highlight');
+        }
+        
+        function unhighlight() {
+            dropArea.classList.remove('highlight');
+        }
+        
+        // Dateien per Drag & Drop
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                fileInput.files = files;
+                updateFileDisplay();
+            } else {
+                showError('Bitte wähle eine PDF-Datei aus.');
+            }
+        }
+        
+        // Dateieingabe-Änderung überwachen
+        fileInput.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                if (this.files[0].type !== 'application/pdf') {
+                    showError('Bitte wähle eine PDF-Datei aus.');
+                    this.value = '';
+                    return;
+                }
+                updateFileDisplay();
+            }
+        });
+        
+        // Aktualisiert die Dateianzeige
+        function updateFileDisplay() {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                
+                selectedFileContainer.innerHTML = `
+                    <div class="file-item">
+                        <div class="file-item-icon">
+                            <i class="fas fa-file-pdf"></i>
+                        </div>
+                        <div class="file-item-info">
+                            <div class="file-name">${file.name}</div>
+                            <div class="file-size">${formatFileSize(file.size)}</div>
+                        </div>
+                    </div>
+                `;
+                
+                selectedFileContainer.style.display = 'block';
+                extractButton.disabled = false;
+            } else {
+                selectedFileContainer.innerHTML = '';
+                selectedFileContainer.style.display = 'none';
+                extractButton.disabled = true;
+            }
+        }
+        
+        // Dateigröße formatieren
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // Formular zurücksetzen
+        resetButton.addEventListener('click', function() {
+            selectedFileContainer.innerHTML = '';
+            selectedFileContainer.style.display = 'none';
+            extractButton.disabled = true;
+            
+            // Verstecke alle Ergebnis- und Fehler-Container
+            metadataResults.style.display = 'none';
+            extractionError.style.display = 'none';
+            loadingIndicator.style.display = 'none';
+            
+            // Formular anzeigen
+            metadataForm.style.display = 'block';
+        });
+        
+        // Fehler anzeigen
+        function showError(message) {
+            errorMessage.textContent = message;
+            extractionError.style.display = 'block';
+            loadingIndicator.style.display = 'none';
+            metadataResults.style.display = 'none';
+        }
+        
+        // Erneut versuchen
+        tryAgainButton.addEventListener('click', function() {
+            extractionError.style.display = 'none';
+            metadataForm.style.display = 'block';
+        });
+        
+        // Neue Datei hochladen
+        extractAgainButton.addEventListener('click', function() {
+            metadataResults.style.display = 'none';
+            metadataForm.style.display = 'block';
+            fileInput.value = '';
+            selectedFileContainer.innerHTML = '';
+            selectedFileContainer.style.display = 'none';
+            extractButton.disabled = true;
+        });
+        
+        // Metadaten extrahieren
+        metadataForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            if (!fileInput.files.length) {
+                showError('Bitte wähle eine PDF-Datei aus.');
+                return;
+            }
+            
+            // Formular ausblenden und Ladeindikator anzeigen
+            metadataForm.style.display = 'none';
+            loadingIndicator.style.display = 'block';
+            
+            // FormData erstellen
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            // AJAX-Anfrage senden
+            fetch('/extract-metadata', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Ladeindikator ausblenden
+                loadingIndicator.style.display = 'none';
+                
+                if (data.success) {
+                    // Metadaten-Felder befüllen
+                    populateMetadataForm(data.metadata);
+                    
+                    // Dateiname setzen
+                    resultFilename.value = data.filename;
+                    
+                    // Vollständige Metadaten anzeigen
+                    rawMetadataContainer.textContent = JSON.stringify(data.metadata, null, 2);
+                    
+                    // Ergebnisse anzeigen
+                    metadataResults.style.display = 'block';
+                } else {
+                    showError(data.error || 'Ein Fehler ist aufgetreten.');
+                }
+            })
+            .catch(error => {
+                console.error('Fehler:', error);
+                loadingIndicator.style.display = 'none';
+                showError('Ein Netzwerkfehler ist aufgetreten. Bitte versuche es erneut.');
+            });
+        });
+        
+        // Metadaten-Formular mit Daten füllen
+        function populateMetadataForm(metadata) {
+            // Titel
+            document.getElementById('edit-title').value = metadata.title || '';
+            
+            // Autoren
+            const authors = metadata.author;
+            if (authors) {
+                if (Array.isArray(authors)) {
+                    document.getElementById('edit-authors').value = authors.join(', ');
+                } else {
+                    document.getElementById('edit-authors').value = authors;
+                }
+            } else {
+                document.getElementById('edit-authors').value = '';
+            }
+            
+            // Jahr
+            document.getElementById('edit-year').value = metadata.year || '';
+            
+            // Journal
+            document.getElementById('edit-journal').value = metadata.journal || '';
+            
+            // Verlag
+            document.getElementById('edit-publisher').value = metadata.publisher || '';
+            
+            // DOI
+            document.getElementById('edit-doi').value = metadata.doi || '';
+            
+            // ISBN
+            document.getElementById('edit-isbn').value = metadata.isbn || '';
+            
+            // Sprache
+            const languageSelect = document.getElementById('edit-language');
+            if (metadata.language) {
+                // Prüfen, ob die Sprache in der Auswahlliste vorhanden ist
+                const exists = Array.from(languageSelect.options).some(option => option.value === metadata.language);
+                if (exists) {
+                    languageSelect.value = metadata.language;
+                } else {
+                    languageSelect.value = 'auto';
+                }
+            } else {
+                languageSelect.value = 'auto';
+            }
+        }
+        
+        // Datei verarbeiten und in Bibliothek speichern
+        document.getElementById('process-and-save').addEventListener('click', function() {
+            const filename = document.getElementById('result-filename').value;
+            processAndSaveFile(filename);
+        });
+        
+        // Funktion zur Verarbeitung und Speicherung einer Datei mit bearbeiteten Metadaten
+        async function processAndSaveFile(filename) {
+            try {
+                // Metadaten vorbereiten
+                const processMetadata = {
+                    title: document.getElementById('edit-title').value,
+                    author: document.getElementById('edit-authors').value.split(',').map(a => a.trim()),
+                    year: document.getElementById('edit-year').value,
+                    journal: document.getElementById('edit-journal').value,
+                    publisher: document.getElementById('edit-publisher').value,
+                    doi: document.getElementById('edit-doi').value,
+                    isbn: document.getElementById('edit-isbn').value,
+                    language: document.getElementById('edit-language').value
+                };
+                
+                // Ursprüngliche Datei vom Dateiinput holen
+                const fileInput = document.getElementById('pdf-file-input');
+                if (!fileInput.files.length) {
+                    throw new Error('Keine Datei ausgewählt');
+                }
+                
+                // FormData für den Upload erstellen
+                const formData = new FormData();
+                formData.append('files', fileInput.files[0]); // 'files' statt 'file' für den Upload-Endpunkt
+                
+                // Optionen hinzufügen
+                formData.append('extract_metadata', 'true');
+                formData.append('ocr_if_needed', 'true');
+                formData.append('language', processMetadata.language);
+                formData.append('use_crossref', 'true');
+                formData.append('use_openlib', 'true');
+                formData.append('use_k10plus', 'true');
+                formData.append('use_googlebooks', 'true');
+                formData.append('use_openalex', 'true');
+                
+                // Anzeigen eines Ladevorgangs
+                loadingIndicator.style.display = 'block';
+                metadataResults.style.display = 'none';
+                
+                // Datei hochladen und verarbeiten
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                // Umleiten zur Dokumentenseite nach erfolgreicher Verarbeitung
+                if (response.ok) {
+                    window.location.href = '/documents';
+                } else {
+                    const errorData = await response.text();
+                    throw new Error(`Fehler beim Hochladen: ${errorData}`);
+                }
+            } catch (error) {
+                console.error('Fehler:', error);
+                showError(error.message || 'Ein Fehler ist beim Verarbeiten der Datei aufgetreten.');
+                loadingIndicator.style.display = 'none';
+            }
+        }
+        
+        // Collapse-Trigger für die vollständigen Metadaten
+        const collapseTrigger = document.querySelector('.collapse-trigger');
+        if (collapseTrigger) {
+            collapseTrigger.addEventListener('click', function() {
+                const targetId = this.getAttribute('data-toggle');
+                const targetElement = document.getElementById(targetId);
+                
+                if (targetElement) {
+                    const isVisible = targetElement.style.display !== 'none';
+                    
+                    if (isVisible) {
+                        targetElement.style.display = 'none';
+                        this.innerHTML = '<i class="fas fa-chevron-down"></i> Vollständige Metadaten anzeigen';
+                    } else {
+                        targetElement.style.display = 'block';
+                        this.innerHTML = '<i class="fas fa-chevron-up"></i> Vollständige Metadaten ausblenden';
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
