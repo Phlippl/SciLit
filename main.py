@@ -21,7 +21,7 @@ import uvicorn
 # Importe aus app-Modulen
 from app.config import (
     APP_NAME, APP_DESCRIPTION, DEBUG, HOST, PORT, 
-    STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR, LOG_FORMAT, LOG_LEVEL
+    STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR, LOG_FORMAT, LOG_LEVEL, PROCESSED_DIR
 )
 from app.services.document_service import get_document_service
 from app.services.search_service import get_search_service

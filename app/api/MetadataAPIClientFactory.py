@@ -121,6 +121,15 @@ class MetadataAPIClientFactory:
                 'k10plus': True
             }
         
+        normalized_sources = {}
+        for key, value in metadata_sources.items():
+            if key.startswith("use_"):
+                # Entferne das "use_" Präfix
+                normalized_key = key[4:]
+                normalized_sources[normalized_key] = value
+            else:
+                normalized_sources[key] = value
+
         # Titel oder Autor aus den Basis-Metadaten extrahieren
         title = basic_metadata.get('title', '')
         authors = basic_metadata.get('author', [])
@@ -131,8 +140,9 @@ class MetadataAPIClientFactory:
         
         # Ergebnisse aus allen aktivierten APIs sammeln
         api_results = []
-        
-        for client_type, enabled in metadata_sources.items():
+
+        # Wichtig: normalized_sources statt metadata_sources verwenden!
+        for client_type, enabled in normalized_sources.items():
             if not enabled:
                 continue
             

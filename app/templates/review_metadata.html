@@ -327,195 +327,116 @@
 {% block extra_js %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Collapse-Trigger für zusätzliche Metadaten
-        const collapseTriggers = document.querySelectorAll('.collapse-trigger');
-        
-        collapseTriggers.forEach(trigger => {
-            trigger.addEventListener('click', function() {
-                const targetId = this.getAttribute('data-toggle');
-                const targetElement = document.getElementById(targetId);
-                
-                if (targetElement) {
-                    const isVisible = targetElement.style.display !== 'none';
-                    
-                    if (isVisible) {
-                        targetElement.style.display = 'none';
-                        this.innerHTML = '<i class="fas fa-chevron-down"></i> Weitere Metadaten anzeigen';
-                    } else {
-                        targetElement.style.display = 'block';
-                        this.innerHTML = '<i class="fas fa-chevron-up"></i> Weitere Metadaten ausblenden';
-                    }
-                }
-            });
-        });
-        
-        // Verarbeitung starten
-        const processButton = document.getElementById('process-button');
-        const reviewForm = document.getElementById('review-form');
-        const processingStatus = document.getElementById('processing-status');
-        const statusMessages = document.getElementById('status-messages');
-        const sessionId = document.getElementById('session-id').value;
-        
-        processButton.addEventListener('click', async function() {
-            // Daten sammeln
-            const fileCards = document.querySelectorAll('.file-metadata-card');
-            const files = [];
+    // Collapse-Trigger für zusätzliche Metadaten
+    const collapseTriggers = document.querySelectorAll('.collapse-trigger');
+    
+    collapseTriggers.forEach(trigger => {
+        trigger.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-toggle');
+            const targetElement = document.getElementById(targetId);
             
-            fileCards.forEach((card, index) => {
-                const filename = card.getAttribute('data-filename');
+            if (targetElement) {
+                const isVisible = targetElement.style.display !== 'none';
                 
-                // Prüfe, ob ein Fehler vorliegt
-                if (card.querySelector('.error-message')) {
-                    return; // Diese Datei überspringen
-                }
-                
-                // Metadaten sammeln
-                const metadata = {
-                    title: document.getElementById(`title-${index + 1}`).value,
-                    author: document.getElementById(`authors-${index + 1}`).value.split(',').map(a => a.trim()),
-                    year: document.getElementById(`year-${index + 1}`).value,
-                    journal: document.getElementById(`journal-${index + 1}`).value,
-                    publisher: document.getElementById(`publisher-${index + 1}`).value,
-                    doi: document.getElementById(`doi-${index + 1}`).value,
-                    isbn: document.getElementById(`isbn-${index + 1}`).value,
-                    language: document.getElementById(`language-${index + 1}`).value
-                };
-                
-                // Optionen aus den verborgenen Daten holen
-                // Für jetzt vereinfacht, später müsste man die tatsächlichen Optionen mitnehmen
-                files.push({
-                    filename: filename,
-                    metadata: metadata,
-                    options: {
-                        ocr_if_needed: true,
-                        language: metadata.language,
-                        use_crossref: true,
-                        use_openlib: true,
-                        use_k10plus: true,
-                        use_googlebooks: true,
-                        use_openalex: true
-                    }
-                });
-            });
-            
-            // Formulardaten vorbereiten
-            const formData = new FormData();
-            formData.append('session_id', sessionId);
-            formData.append('file_data', JSON.stringify(files));
-            
-            try {
-                // Formular ausblenden, Verarbeitungsstatus anzeigen
-                reviewForm.style.display = 'none';
-                processingStatus.style.display = 'block';
-                
-                // Status-Nachrichten initialisieren
-                statusMessages.innerHTML = '';
-                files.forEach(file => {
-                    statusMessages.innerHTML += `
-                        <div class="status-message pending" id="status-${file.filename.replace(/\./g, '-')}">
-                            <div class="status-message-icon">
-                                <i class="fas fa-spinner fa-spin"></i>
-                            </div>
-                            <div class="status-message-text">
-                                ${file.filename} wird verarbeitet...
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                // Dateien verarbeiten
-                const response = await fetch('/process-reviewed-files', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    // Status-Nachrichten aktualisieren
-                    result.results.forEach(fileResult => {
-                        const statusElement = document.getElementById(`status-${fileResult.filename.replace(/\./g, '-')}`);
-                        
-                        if (statusElement) {
-                            if (fileResult.status === 'processing') {
-                                statusElement.classList.remove('pending');
-                                statusElement.classList.add('success');
-                                statusElement.innerHTML = `
-                                    <div class="status-message-icon">
-                                        <i class="fas fa-check-circle"></i>
-                                    </div>
-                                    <div class="status-message-text">
-                                        ${fileResult.filename} wird im Hintergrund verarbeitet und in Ihre Bibliothek aufgenommen.
-                                    </div>
-                                `;
-                            } else if (fileResult.status === 'failed') {
-                                statusElement.classList.remove('pending');
-                                statusElement.classList.add('error');
-                                statusElement.innerHTML = `
-                                    <div class="status-message-icon">
-                                        <i class="fas fa-times-circle"></i>
-                                    </div>
-                                    <div class="status-message-text">
-                                        Fehler bei der Verarbeitung von ${fileResult.filename}: ${fileResult.error || 'Unbekannter Fehler'}
-                                    </div>
-                                `;
-                            }
-                        }
-                    });
+                if (isVisible) {
+                    targetElement.style.display = 'none';
+                    this.innerHTML = '<i class="fas fa-chevron-down"></i> Weitere Metadaten anzeigen';
                 } else {
-                    throw new Error(result.error || 'Ein unbekannter Fehler ist aufgetreten.');
+                    targetElement.style.display = 'block';
+                    this.innerHTML = '<i class="fas fa-chevron-up"></i> Weitere Metadaten ausblenden';
                 }
-                
-            } catch (error) {
-                console.error('Fehler:', error);
-                
-                // Fehlermeldung anzeigen
-                statusMessages.innerHTML = `
-                    <div class="status-message error">
-                        <div class="status-message-icon">
-                            <i class="fas fa-exclamation-circle"></i>
-                        </div>
-                        <div class="status-message-text">
-                            Fehler bei der Verarbeitung: ${error.message || 'Ein unbekannter Fehler ist aufgetreten.'}
-                        </div>
-                    </div>
-                `;
             }
         });
     });
-</script>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // ... existing code ...
+    
+    // Verarbeitung starten
+    const processButton = document.getElementById('process-button');
+    const reviewForm = document.getElementById('review-form');
+    const processingStatus = document.getElementById('processing-status');
+    const statusMessages = document.getElementById('status-messages');
+    const sessionId = document.getElementById('session-id').value;
+    
+    processButton.addEventListener('click', async function() {
+        // Daten sammeln
+        const fileCards = document.querySelectorAll('.file-metadata-card');
+        const files = [];
         
-        // Polling für Verarbeitungsstatus
-        const statusMessages = document.getElementById('status-messages');
-        const processingStatus = document.getElementById('processing-status');
-        
-        if (processingStatus && processingStatus.style.display !== 'none') {
-            // Liste aller Dokument-IDs sammeln
-            const documentIds = [];
-            const statusElements = document.querySelectorAll('[id^="status-"]');
+        fileCards.forEach((card, index) => {
+            const filename = card.getAttribute('data-filename');
             
-            // Extrahiere die Dateinamen aus den Status-IDs
-            statusElements.forEach(element => {
-                const filename = element.id.replace('status-', '').replace(/-/g, '.');
-                documentIds.push(filename);
+            // Prüfe, ob ein Fehler vorliegt
+            if (card.querySelector('.error-message')) {
+                return; // Diese Datei überspringen
+            }
+            
+            // Metadaten sammeln
+            const metadata = {
+                title: document.getElementById(`title-${index + 1}`).value,
+                author: document.getElementById(`authors-${index + 1}`).value.split(',').map(a => a.trim()),
+                year: document.getElementById(`year-${index + 1}`).value,
+                journal: document.getElementById(`journal-${index + 1}`).value,
+                publisher: document.getElementById(`publisher-${index + 1}`).value,
+                doi: document.getElementById(`doi-${index + 1}`).value,
+                isbn: document.getElementById(`isbn-${index + 1}`).value,
+                language: document.getElementById(`language-${index + 1}`).value
+            };
+            
+            // Optionen aus den verborgenen Daten holen
+            files.push({
+                filename: filename,
+                metadata: metadata,
+                options: {
+                    ocr_if_needed: true,
+                    language: metadata.language,
+                    use_crossref: true,
+                    use_openlib: true,
+                    use_k10plus: true,
+                    use_googlebooks: true,
+                    use_openalex: true
+                }
+            });
+        });
+        
+        // Formulardaten vorbereiten
+        const formData = new FormData();
+        formData.append('session_id', sessionId);
+        formData.append('file_data', JSON.stringify(files));
+        
+        try {
+            // Formular ausblenden, Verarbeitungsstatus anzeigen
+            reviewForm.style.display = 'none';
+            processingStatus.style.display = 'block';
+            
+            // Status-Nachrichten initialisieren
+            statusMessages.innerHTML = '';
+            files.forEach(file => {
+                statusMessages.innerHTML += `
+                    <div class="status-message pending" id="status-${file.filename.replace(/\./g, '-')}">
+                        <div class="status-message-icon">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                        <div class="status-message-text">
+                            ${file.filename} wird verarbeitet...
+                        </div>
+                    </div>
+                `;
             });
             
-            // Polling-Funktion für den Status
-            function checkProcessingStatus() {
-                // Für jedes Dokument den Status prüfen
-                documentIds.forEach(filename => {
-                    fetch(`/api/document_status/${filename}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        const statusElement = document.getElementById(`status-${filename.replace(/\./g, '-')}`);
-                        
-                        if (data.status === 'complete') {
+            // Dateien verarbeiten
+            const response = await fetch('/process-reviewed-files', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                // Status-Nachrichten aktualisieren
+                result.results.forEach(fileResult => {
+                    const statusElement = document.getElementById(`status-${fileResult.filename.replace(/\./g, '-')}`);
+                    
+                    if (statusElement) {
+                        if (fileResult.status === 'processing') {
                             statusElement.classList.remove('pending');
                             statusElement.classList.add('success');
                             statusElement.innerHTML = `
@@ -523,28 +444,96 @@
                                     <i class="fas fa-check-circle"></i>
                                 </div>
                                 <div class="status-message-text">
-                                    ${filename} wurde erfolgreich verarbeitet und in Ihre Bibliothek aufgenommen.
+                                    ${fileResult.filename} wird im Hintergrund verarbeitet und in Ihre Bibliothek aufgenommen.
                                 </div>
                             `;
-                            
-                            // Wenn alle erfolgreich, Navigation zu Dokumente anzeigen
-                            if (document.querySelectorAll('.success').length === documentIds.length) {
-                                document.querySelector('.status-actions').style.display = 'flex';
-                            }
+                        } else if (fileResult.status === 'failed') {
+                            statusElement.classList.remove('pending');
+                            statusElement.classList.add('error');
+                            statusElement.innerHTML = `
+                                <div class="status-message-icon">
+                                    <i class="fas fa-times-circle"></i>
+                                </div>
+                                <div class="status-message-text">
+                                    Fehler bei der Verarbeitung von ${fileResult.filename}: ${fileResult.error || 'Unbekannter Fehler'}
+                                </div>
+                            `;
                         }
-                    })
-                    .catch(error => console.error('Fehler beim Statusabruf:', error));
+                    }
                 });
-                
-                // Alle 3 Sekunden erneut prüfen, solange noch Dokumente verarbeitet werden
-                if (document.querySelectorAll('.success').length < documentIds.length) {
-                    setTimeout(checkProcessingStatus, 3000);
-                }
+            } else {
+                throw new Error(result.error || 'Ein unbekannter Fehler ist aufgetreten.');
             }
             
-            // Starte das Polling
-            checkProcessingStatus();
+        } catch (error) {
+            console.error('Fehler:', error);
+            
+            // Fehlermeldung anzeigen
+            statusMessages.innerHTML = `
+                <div class="status-message error">
+                    <div class="status-message-icon">
+                        <i class="fas fa-exclamation-circle"></i>
+                    </div>
+                    <div class="status-message-text">
+                        Fehler bei der Verarbeitung: ${error.message || 'Ein unbekannter Fehler ist aufgetreten.'}
+                    </div>
+                </div>
+            `;
         }
     });
+    
+    // Polling für Verarbeitungsstatus
+    if (processingStatus && processingStatus.style.display !== 'none') {
+        // Liste aller Dokument-IDs sammeln
+        const documentIds = [];
+        const statusElements = document.querySelectorAll('[id^="status-"]');
+        
+        // Extrahiere die Dateinamen aus den Status-IDs
+        statusElements.forEach(element => {
+            const filename = element.id.replace('status-', '').replace(/-/g, '.');
+            documentIds.push(filename);
+        });
+        
+        // Polling-Funktion für den Status
+        function checkProcessingStatus() {
+            // Für jedes Dokument den Status prüfen
+            documentIds.forEach(filename => {
+                fetch(`/api/document_status/${filename}`)
+                .then(response => response.json())
+                .then(data => {
+                    const statusElement = document.getElementById(`status-${filename.replace(/\./g, '-')}`);
+                    
+                    if (data.status === 'complete') {
+                        statusElement.classList.remove('pending');
+                        statusElement.classList.add('success');
+                        statusElement.innerHTML = `
+                            <div class="status-message-icon">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div class="status-message-text">
+                                ${filename} wurde erfolgreich verarbeitet und in Ihre Bibliothek aufgenommen.
+                            </div>
+                        `;
+                        
+                        // Wenn alle erfolgreich, Navigation zu Dokumente anzeigen
+                        if (document.querySelectorAll('.success').length === documentIds.length) {
+                            document.querySelector('.status-actions').style.display = 'flex';
+                        }
+                    }
+                })
+                .catch(error => console.error('Fehler beim Statusabruf:', error));
+            });
+            
+            // Alle 3 Sekunden erneut prüfen, solange noch Dokumente verarbeitet werden
+            if (document.querySelectorAll('.success').length < documentIds.length) {
+                setTimeout(checkProcessingStatus, 3000);
+            }
+        }
+        
+        // Starte das Polling
+        checkProcessingStatus();
+    }
+}); 
 </script>
+{% endblock %}
 {% endblock %}
