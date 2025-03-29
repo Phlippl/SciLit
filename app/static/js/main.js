@@ -36,6 +36,9 @@
         } else if (path.endsWith('/documents')) {
             // Dokumentenliste-Seite
             document.dispatchEvent(new CustomEvent('scilit:documentsPage'));
+        } else if (path.includes('/review-metadata')) {
+            // Metadaten-Überprüfungsseite
+            initReviewMetadataPage();
         }
     }
     
@@ -210,11 +213,119 @@
         }
     }
     
+    /**
+     * Prüft den Verarbeitungsstatus eines Dokuments
+     * @param {string} docId - ID des Dokuments
+     * @param {Function} statusCallback - Callback-Funktion für Statusaktualisierungen
+     */
+    function checkDocumentProcessing(docId, statusCallback) {
+        // Abrufen des Dokumentenstatus vom Server
+        fetch(`/api/document_status/${docId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'complete') {
+                // Wenn das Dokument vollständig verarbeitet wurde
+                if (data.reload) {
+                    // Wenn nötig, Seite neu laden
+                    window.location.reload();
+                } else if (statusCallback) {
+                    // Callback mit dem Ergebnis aufrufen
+                    statusCallback('complete', data.document);
+                }
+            } else {
+                // Dokument ist noch in Verarbeitung
+                if (statusCallback) {
+                    statusCallback('processing', null);
+                }
+                // Nach 3 Sekunden erneut prüfen
+                setTimeout(() => window.scilit.checkDocumentProcessing(docId, statusCallback), 3000);
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Abrufen des Dokumentenstatus:', error);
+            if (statusCallback) {
+                statusCallback('error', null);
+            }
+        });
+    }
+    
+    /**
+     * Initialisiert die Metadaten-Überprüfungsseite
+     */
+    function initReviewMetadataPage() {
+        // Polling für Verarbeitungsstatus einrichten
+        const statusMessages = document.getElementById('status-messages');
+        const processingStatus = document.getElementById('processing-status');
+        
+        if (processingStatus && processingStatus.style.display !== 'none') {
+            // Liste aller Dokument-IDs sammeln
+            const documentIds = [];
+            const statusElements = document.querySelectorAll('[id^="status-"]');
+            
+            // Extrahiere die Dateinamen aus den Status-IDs
+            statusElements.forEach(element => {
+                const filename = element.id.replace('status-', '').replace(/-/g, '.');
+                documentIds.push(filename);
+            });
+            
+            // Polling-Funktion für den Status
+            function checkProcessingStatus() {
+                // Für jedes Dokument den Status prüfen
+                documentIds.forEach(filename => {
+                    fetch(`/api/document_status/${filename}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Statusabfrage fehlgeschlagen');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        const statusElement = document.getElementById(`status-${filename.replace(/\./g, '-')}`);
+                        if (!statusElement) return;
+                        
+                        if (data.status === 'complete') {
+                            statusElement.classList.remove('pending');
+                            statusElement.classList.add('success');
+                            statusElement.innerHTML = `
+                                <div class="status-message-icon">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <div class="status-message-text">
+                                    ${filename} wurde erfolgreich verarbeitet und in Ihre Bibliothek aufgenommen.
+                                </div>
+                            `;
+                            
+                            // Wenn alle erfolgreich, Navigation zu Dokumente anzeigen
+                            const successElements = document.querySelectorAll('.success');
+                            if (successElements.length === documentIds.length) {
+                                const actionsElement = document.querySelector('.status-actions');
+                                if (actionsElement) {
+                                    actionsElement.style.display = 'flex';
+                                }
+                            }
+                        }
+                    })
+                    .catch(error => console.error('Fehler beim Statusabruf:', error));
+                });
+                
+                // Alle 3 Sekunden erneut prüfen, solange noch Dokumente verarbeitet werden
+                const pendingElements = document.querySelectorAll('.pending');
+                if (pendingElements.length > 0) {
+                    setTimeout(checkProcessingStatus, 3000);
+                }
+            }
+            
+            // Starte das Polling
+            checkProcessingStatus();
+        }
+    }
+    
     // Mache einige Funktionen global verfügbar
     window.scilit = {
         formatFileSize,
         showNotification,
-        fetchWithErrorHandling
+        fetchWithErrorHandling,
+        checkDocumentProcessing
     };
     
     // Führe die Initialisierung nach dem Laden des DOM aus

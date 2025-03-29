@@ -68,13 +68,26 @@
     <div class="document-grid">
         {% for doc in recent_documents %}
         <div class="document-card">
-            <h3>{{ doc.title }}</h3>
-            <p class="authors">{{ doc.authors|join(", ") }}</p>
-            <p class="source">{{ doc.source }}, {{ doc.year }}</p>
+            <h3>{{ doc.metadata.title }}</h3>
+            <p class="authors">{{ doc.metadata.author|join(", ") }}</p>
+            <p class="source">
+                {% if doc.metadata.journal %}
+                    {{ doc.metadata.journal }}
+                {% elif doc.metadata.publisher %}
+                    {{ doc.metadata.publisher }}
+                {% endif %}
+                {% if doc.metadata.year %}
+                    , {{ doc.metadata.year }}
+                {% endif %}
+            </p>
             <a href="/documents/{{ doc.id }}" class="btn btn-text">Details anzeigen</a>
         </div>
         {% endfor %}
     </div>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/pages/home.css') }}">
 {% endblock %}

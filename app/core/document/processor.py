@@ -153,6 +153,10 @@ class DocumentProcessor:
             # Ergebnisse speichern
             self._save_processing_results(doc_dir, text, metadata, chunks)
             
+            # Status-Datei erstellen
+            with open(os.path.join(doc_dir, "processing_complete"), "w") as f:
+                f.write("complete")
+                
             # Rückgabe-Dictionary erstellen
             result = {
                 "id": doc_id,
@@ -258,7 +262,30 @@ class DocumentProcessor:
         Returns:
             Erweiterte Metadaten
         """
-        return self.api_factory.enhance_metadata(basic_metadata, self.metadata_sources)
+        try:
+            # Überprüfe, ob wir einen Titel oder Autoren haben
+            if not basic_metadata.get('title') and not basic_metadata.get('author'):
+                logger.warning("Keine ausreichenden Basis-Metadaten für API-Suche gefunden")
+                return basic_metadata
+
+            # Debugging-Informationen
+            logger.debug(f"Versuche Metadaten anzureichern: {basic_metadata}")
+            
+            # API-Abfragen durchführen
+            enhanced = self.api_factory.enhance_metadata(basic_metadata, self.metadata_sources)
+            
+            # Prüfen, ob die Anreicherung erfolgreich war
+            if enhanced and len(enhanced) > len(basic_metadata):
+                logger.info(f"Metadaten erfolgreich angereichert: {len(enhanced)} Felder")
+                return enhanced
+            else:
+                logger.warning("Keine zusätzlichen Metadaten gefunden")
+                return basic_metadata
+                
+        except Exception as e:
+            logger.error(f"Fehler bei der Metadatenanreicherung: {str(e)}")
+            # Im Fehlerfall die ursprünglichen Metadaten zurückgeben
+            return basic_metadata
     
     def _save_processing_results(self, doc_dir: str, text: str, metadata: Dict[str, Any], chunks: List[Dict[str, Any]]) -> None:
         """

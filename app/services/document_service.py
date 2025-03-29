@@ -1,12 +1,14 @@
-# Neue Datei: app/services/document_service.py
-
 """
 Dokument-Service für SciLit
 -------------------------
 Service für den Zugriff auf verarbeitete Dokumente und zugehörige Operationen.
 """
 
+import json
 import logging
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
 from app.core.document.manager import get_document_manager
@@ -41,7 +43,76 @@ class DocumentService:
         Returns:
             Liste aller Dokumente mit ihren Metadaten
         """
-        return self.document_manager.get_all_documents()
+        documents = self.document_manager.get_all_documents()
+        
+        # Wenn keine Dokumente gefunden wurden, versuche das Verzeichnis erneut zu scannen
+        if not documents:
+            try:
+                # Verzeichnis scannen und nach Dokumenten suchen
+                processed_dir = Path(self.document_manager.processed_dir)
+                if processed_dir.exists():
+                    # Nach Dokumentenverzeichnissen suchen
+                    for doc_dir in processed_dir.glob("*"):
+                        if doc_dir.is_dir():
+                            # Prüfen, ob es sich um ein verarbeitetes Dokument handelt
+                            metadata_file = doc_dir / "metadata.json"
+                            if metadata_file.exists():
+                                try:
+                                    # Metadaten laden
+                                    with open(metadata_file, 'r', encoding='utf-8') as f:
+                                        metadata = json.load(f)
+                                        
+                                    # Dokument zum Index hinzufügen
+                                    doc_id = doc_dir.name
+                                    
+                                    # Chunks zählen
+                                    chunks_count = 0
+                                    chunks_file = doc_dir / "chunks.json"
+                                    if chunks_file.exists():
+                                        try:
+                                            with open(chunks_file, 'r', encoding='utf-8') as f:
+                                                chunks = json.load(f)
+                                                chunks_count = len(chunks)
+                                        except Exception as e:
+                                            logger.error(f"Fehler beim Laden der Chunks für {doc_id}: {str(e)}")
+                                    
+                                    # Bestimme die Datei
+                                    filename = metadata.get('filename', '')
+                                    filepath = ''
+                                    
+                                    # Suche nach der tatsächlichen Datei
+                                    for file in doc_dir.glob("*"):
+                                        if file.is_file() and not file.name.endswith(('.json', '.txt')):
+                                            filepath = str(file)
+                                            if not filename:
+                                                filename = file.name
+                                            break
+                                    
+                                    if not filepath and filename:
+                                        filepath = str(doc_dir / filename)
+                                    
+                                    self.document_manager.documents[doc_id] = {
+                                        'id': doc_id,
+                                        'filename': filename,
+                                        'filepath': filepath,
+                                        'metadata': metadata,
+                                        'chunks_count': chunks_count,
+                                        'added_at': metadata.get('created', datetime.now().isoformat()),
+                                        'updated_at': datetime.now().isoformat()
+                                    }
+                                    logger.info(f"Dokument {doc_id} aus dem Verzeichnis wiederhergestellt")
+                                except Exception as e:
+                                    logger.error(f"Fehler beim Laden von Dokument {doc_id}: {str(e)}")
+                    
+                    # Index speichern
+                    self.document_manager._save_document_index()
+                    
+                    # Aktualisierte Dokumentenliste zurückgeben
+                    documents = list(self.document_manager.documents.values())
+            except Exception as e:
+                logger.error(f"Fehler beim Scannen des Dokument-Verzeichnisses: {str(e)}")
+                
+        return documents
     
     def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -53,7 +124,67 @@ class DocumentService:
         Returns:
             Das Dokument oder None, wenn nicht gefunden
         """
-        return self.document_manager.get_document(doc_id)
+        document = self.document_manager.get_document(doc_id)
+        
+        # Wenn das Dokument nicht gefunden wurde, versuche es direkt zu laden
+        if not document:
+            try:
+                # Prüfen, ob das Verzeichnis existiert
+                doc_dir = Path(self.document_manager.processed_dir) / doc_id
+                if doc_dir.exists():
+                    metadata_file = doc_dir / "metadata.json"
+                    if metadata_file.exists():
+                        # Metadaten laden
+                        with open(metadata_file, 'r', encoding='utf-8') as f:
+                            metadata = json.load(f)
+                        
+                        # Chunks zählen
+                        chunks_count = 0
+                        chunks_file = doc_dir / "chunks.json"
+                        if chunks_file.exists():
+                            try:
+                                with open(chunks_file, 'r', encoding='utf-8') as f:
+                                    chunks = json.load(f)
+                                    chunks_count = len(chunks)
+                            except Exception as e:
+                                logger.error(f"Fehler beim Laden der Chunks für {doc_id}: {str(e)}")
+                        
+                        # Bestimme die Datei
+                        filename = metadata.get('filename', '')
+                        filepath = ''
+                        
+                        # Suche nach der tatsächlichen Datei
+                        for file in doc_dir.glob("*"):
+                            if file.is_file() and not file.name.endswith(('.json', '.txt')):
+                                filepath = str(file)
+                                if not filename:
+                                    filename = file.name
+                                break
+                        
+                        if not filepath and filename:
+                            filepath = str(doc_dir / filename)
+                        
+                        # Dokument erstellen
+                        document = {
+                            'id': doc_id,
+                            'filename': filename,
+                            'filepath': filepath,
+                            'metadata': metadata,
+                            'chunks_count': chunks_count,
+                            'added_at': metadata.get('created', datetime.now().isoformat()),
+                            'updated_at': datetime.now().isoformat()
+                        }
+                        
+                        # Zum Index hinzufügen
+                        self.document_manager.documents[doc_id] = document
+                        self.document_manager._save_document_index()
+                        
+                        logger.info(f"Dokument {doc_id} direkt aus dem Verzeichnis geladen")
+            except Exception as e:
+                logger.error(f"Fehler beim direkten Laden von Dokument {doc_id}: {str(e)}")
+                return None
+        
+        return document
     
     def get_document_metadata(self, doc_id: str) -> Dict[str, Any]:
         """
@@ -132,11 +263,21 @@ class DocumentService:
             DocumentProcessingError: Bei Fehlern während der Verarbeitung
         """
         try:
-            return self.document_processor.process_document(filepath, options)
+            result = self.document_processor.process_document(filepath, options)
+            
+            # Status-Datei erstellen
+            if result and 'id' in result:
+                doc_id = result['id']
+                status_path = os.path.join(self.document_manager.processed_dir, doc_id, "processing_complete")
+                with open(status_path, "w") as f:
+                    f.write("complete")
+                logger.info(f"Verarbeitungsstatus für {doc_id} gesetzt")
+                
+            return result
         except Exception as e:
             logger.error(f"Fehler bei der Dokumentenverarbeitung: {str(e)}")
             raise DocumentProcessingError(f"Fehler bei der Verarbeitung: {str(e)}", 
-                                        document_name=filepath.split('/')[-1])
+                                        document_name=os.path.basename(filepath))
     
     def reprocess_document(self, doc_id: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -154,7 +295,7 @@ class DocumentService:
             ValueError: Wenn das Dokument nicht gefunden wird
         """
         # Dokument abrufen
-        document = self.document_manager.get_document(doc_id)
+        document = self.get_document(doc_id)
         if not document:
             raise ValueError(f"Dokument mit ID {doc_id} nicht gefunden")
         
@@ -207,7 +348,7 @@ class DocumentService:
             authors = doc.get('metadata', {}).get('author', [])
             if isinstance(authors, list):
                 for author in authors:
-                    if query in author.lower():
+                    if query in str(author).lower():
                         results.append(doc)
                         break
             elif isinstance(authors, str) and query in authors.lower():

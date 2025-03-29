@@ -56,12 +56,24 @@ app.include_router(search_routes.router)
 
 # Hintergrundverarbeitung von Dokumenten
 def process_document_task(filepath: str, options: Dict[str, Any]):
-    """Verarbeitet ein Dokument im Hintergrund."""
+    """Verarbeitet ein Dokument im Hintergrund und aktualisiert den Status."""
     try:
-        document_service.process_uploaded_document(filepath, options)
-        logger.info(f"Dokument {filepath} erfolgreich verarbeitet")
+        # Process the document
+        result = document_service.process_uploaded_document(filepath, options)
+        doc_id = result.get("id")
+        
+        # Update the processing status
+        if doc_id:
+            # Set a flag in a status file to indicate processing is complete
+            status_path = os.path.join(PROCESSED_DIR, doc_id, "processing_complete")
+            with open(status_path, "w") as f:
+                f.write("complete")
+            
+        logger.info(f"Dokument {filepath} erfolgreich verarbeitet, ID: {doc_id}")
+        return True
     except Exception as e:
         logger.error(f"Fehler bei der Verarbeitung von {filepath}: {str(e)}")
+        return False
 
 # Hilfsfunktion für Template-Kontext
 def get_base_context(request: Request):
@@ -159,6 +171,23 @@ async def upload_file(
     
     # Umleitung zur Dokumentenliste
     return RedirectResponse(url="/documents", status_code=303)
+
+@app.get("/api/document_status/{doc_id}")
+async def get_document_status(doc_id: str):
+    """Prüft den Verarbeitungsstatus eines Dokuments."""
+    # Check if document exists
+    document = document_service.get_document(doc_id)
+    if document:
+        return {"status": "complete", "document": document}
+    
+    # Check if document is being processed
+    status_path = os.path.join(PROCESSED_DIR, doc_id, "processing_complete")
+    if os.path.exists(status_path):
+        # Document exists but hasn't been loaded in memory yet
+        return {"status": "complete", "reload": True}
+    
+    # Document is still processing or doesn't exist
+    return {"status": "processing"}
 
 @app.post("/upload-with-review")
 async def upload_for_review(
