@@ -4,9 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SciLit - Wissenschaftliche Literaturverwaltung{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <meta name="description" content="{% block meta_description %}SciLit - Wissenschaftliche Literaturverwaltung mit KI-Unterstützung{% endblock %}">
+    
+    <!-- Basis-Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/main.css') }}">
+    
     <!-- Font Awesome für Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Seiten-spezifische Stylesheets -->
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -16,7 +22,14 @@
                 <h1><a href="/">SciLit</a></h1>
                 <p>Wissenschaftliche Literaturverwaltung mit KI</p>
             </div>
-            <nav>
+            
+            <!-- Mobile Navigation Toggle -->
+            <button class="nav-toggle" aria-expanded="false" aria-controls="main-nav">
+                <i class="fas fa-bars"></i>
+                <span class="sr-only">Menü</span>
+            </button>
+            
+            <nav id="main-nav" aria-hidden="true">
                 <ul>
                     <li><a href="/" {% if request.url.path == "/" %}class="active"{% endif %}><i class="fas fa-home"></i> Startseite</a></li>
                     <li><a href="/upload" {% if request.url.path == "/upload" %}class="active"{% endif %}><i class="fas fa-upload"></i> Dokumente hochladen</a></li>
@@ -39,7 +52,10 @@
         </div>
     </footer>
 
+    <!-- Basis-JavaScript -->
     <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+    
+    <!-- Seiten-spezifische Skripte -->
     {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,16 @@
+/**
+ * SciLit Hauptstylesheet
+ * Importiert alle benötigten Stylesheets für die Anwendung
+ */
+
+/* Basis-Styles */
+@import 'base.css';
+
+/* Layout */
+@import 'layout/layout.css';
+
+/* Komponenten */
+@import 'components/components.css';
+
+/* Seiten-spezifische Styles - werden nur bei Bedarf geladen */
+/* Diese werden in den jeweiligen Templates über den Block extra_css eingebunden */
