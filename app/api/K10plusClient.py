@@ -8,10 +8,11 @@ import re
 import logging
 import urllib.parse
 import xml.etree.ElementTree as ET
+import requests
 from typing import Dict, List, Any, Optional
 from difflib import SequenceMatcher
 
-from app.api.base_client import BaseAPIClient
+from app.api.BaseAPIClient import BaseAPIClient
 from app.core.metadata.extractor import string_similarity
 from app.config import K10PLUS_API_URL
 

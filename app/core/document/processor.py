@@ -14,7 +14,7 @@ from pathlib import Path
 from app.config import UPLOAD_DIR, PROCESSED_DIR, DEFAULT_PROCESSING_OPTIONS
 from app.core.document.parsers import determine_parser_for_file, DocumentParsingError
 from app.core.metadata.extractor import extract_title_from_text, extract_authors_from_text
-from app.api.factory import get_metadata_api_factory
+from app.api.MetadataAPIClientFactory import get_metadata_api_factory
 from app.core.analysis.text_splitter import EnhancedTextSplitter
 from app.utils.file_utils import generate_unique_id, ensure_dir_exists
 from app.utils.error_handling import DocumentProcessingError

@@ -7,12 +7,12 @@ Factory-Klasse zum Erstellen und Verwalten der verschiedenen Metadaten-API-Clien
 import logging
 from typing import Dict, List, Any, Optional
 
-from app.api.base_client import BaseAPIClient
-from app.api.crossref_client import CrossRefClient
-from app.api.openalex_client import OpenAlexClient
-from app.api.googlebooks_client import GoogleBooksClient
-from app.api.openlib_client import OpenLibraryClient
-from app.api.k10plus_client import K10plusClient
+from app.api.BaseAPIClient import BaseAPIClient
+from app.api.CrossRefClient import CrossRefClient
+from app.api.OpenAlexClient import OpenAlexClient
+from app.api.GoogleBooksClient import GoogleBooksClient
+from app.api.OpenLibraryClient import OpenLibraryClient
+from app.api.K10plusClient import K10plusClient
 
 # Logger konfigurieren
 logger = logging.getLogger("scilit.api.factory")

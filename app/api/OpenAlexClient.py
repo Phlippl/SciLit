@@ -1,42 +1,44 @@
 """
-CrossRef API Client für SciLit
+OpenAlex API Client für SciLit
 ----------------------------
-Client für die CrossRef API zur Abfrage von DOIs und akademischen Publikationsmetadaten.
+Client für die OpenAlex API zur Abfrage wissenschaftlicher Publikationsmetadaten.
 """
 
 import re
 import json
 import logging
 import urllib.parse
+import requests
 from typing import Dict, List, Any, Optional
 from difflib import SequenceMatcher
 
-from app.api.base_client import BaseAPIClient
+
+from app.api.BaseAPIClient import BaseAPIClient
 from app.core.metadata.extractor import string_similarity
-from app.config import CROSSREF_API_URL
+from app.config import OPENALEX_API_URL
 
 # Logger konfigurieren
-logger = logging.getLogger("scilit.api.crossref")
+logger = logging.getLogger("scilit.api.openalex")
 
-class CrossRefClient(BaseAPIClient):
+class OpenAlexClient(BaseAPIClient):
     """
-    Client für die CrossRef API.
+    Client für die OpenAlex API.
     
-    CrossRef ist eine zentrale Quelle für DOIs und Metadaten akademischer Publikationen.
-    Dieser Client ermöglicht die Suche nach Publikationen basierend auf DOI, Titel oder Autor.
+    OpenAlex ist ein offener akademischer Graph und Index für wissenschaftliche Publikationen
+    und bietet umfassende Metadaten zu Artikeln, Autoren, Institutionen usw.
     
     Attributes:
-        api_url (str): Basis-URL für die CrossRef API
+        api_url (str): Basis-URL für die OpenAlex API
     """
     
     def __init__(self):
-        """Initialisiert den CrossRef API Client."""
-        super().__init__(name="crossref")
-        self.api_url = CROSSREF_API_URL
+        """Initialisiert den OpenAlex API Client."""
+        super().__init__(name="openalex")
+        self.api_url = OPENALEX_API_URL
     
     def enhance_metadata(self, basic_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Erweitert die grundlegenden Metadaten mit Daten aus CrossRef.
+        Erweitert die grundlegenden Metadaten mit Daten aus OpenAlex.
         
         Args:
             basic_metadata: Grundlegende Metadaten aus dem Dokument
@@ -59,38 +61,38 @@ class CrossRefClient(BaseAPIClient):
                     doi = doi_match.group(0)
                     break
         
-        logger.info(f"Erweitere Metadaten mit CrossRef: Titel='{title}', Autoren={authors}, DOI={doi}")
+        logger.info(f"Erweitere Metadaten mit OpenAlex: Titel='{title}', Autoren={authors}, DOI={doi}")
         
-        # Metadaten aus CrossRef abrufen
-        crossref_metadata = self.fetch_metadata(title, authors, doi)
-        if not crossref_metadata:
-            logger.debug("Keine Metadaten von CrossRef gefunden")
+        # Metadaten aus OpenAlex abrufen
+        openalex_metadata = self.fetch_metadata(title, authors, doi)
+        if not openalex_metadata:
+            logger.debug("Keine Metadaten von OpenAlex gefunden")
             return basic_metadata
         
         # Bewertung der gefundenen Metadaten
-        score = self._score_metadata(crossref_metadata, title, authors)
-        logger.info(f"CrossRef-Metadaten gefunden mit Score {score:.2f}")
+        score = self._score_metadata(openalex_metadata, title, authors)
+        logger.info(f"OpenAlex-Metadaten gefunden mit Score {score:.2f}")
         
         # Bei hohem Score die Metadaten vollständig übernehmen
         if score > 70:
-            logger.debug("Hoher Score: Übernehme alle CrossRef-Metadaten")
+            logger.debug("Hoher Score: Übernehme alle OpenAlex-Metadaten")
             enhanced_metadata = basic_metadata.copy()
-            for key, value in crossref_metadata.items():
+            for key, value in openalex_metadata.items():
                 if value:  # Leere Werte nicht übernehmen
                     enhanced_metadata[key] = value
             return enhanced_metadata
         
         # Bei niedrigem Score nur ausgewählte Felder übernehmen
-        logger.debug("Niedriger Score: Übernehme nur ausgewählte CrossRef-Metadaten")
-        for key in ['journal', 'publisher', 'doi', 'issn', 'year']:
-            if key in crossref_metadata and crossref_metadata[key]:
-                basic_metadata[key] = crossref_metadata[key]
+        logger.debug("Niedriger Score: Übernehme nur ausgewählte OpenAlex-Metadaten")
+        for key in ['journal', 'publisher', 'doi', 'year', 'keywords']:
+            if key in openalex_metadata and openalex_metadata[key]:
+                basic_metadata[key] = openalex_metadata[key]
         
         return basic_metadata
     
     def fetch_metadata(self, title: str = None, authors: List[str] = None, doi: str = None) -> Dict[str, Any]:
         """
-        Ruft Metadaten von CrossRef ab, entweder über DOI oder Titel/Autoren.
+        Ruft Metadaten von OpenAlex ab, entweder über DOI oder Titel/Autoren.
         
         Args:
             title: Titel der Publikation
@@ -112,7 +114,7 @@ class CrossRefClient(BaseAPIClient):
     
     def _fetch_by_doi(self, doi: str) -> Dict[str, Any]:
         """
-        Sucht direkt nach einer DOI in CrossRef.
+        Sucht direkt nach einer DOI in OpenAlex.
         
         Args:
             doi: Die DOI der Publikation
@@ -123,16 +125,18 @@ class CrossRefClient(BaseAPIClient):
         cache_key = self._create_cache_key("doi", doi)
         
         def fetch_func():
-            url = f"{self.api_url}/{doi}"
+            url = f"{self.api_url}?filter=doi:{urllib.parse.quote(doi)}"
+            headers = {"Accept": "application/json"}
+            
             try:
-                response = self._make_request("get", url)
+                response = self._make_request("get", url, headers=headers)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if 'message' in data:
-                        return self._parse_crossref_message(data['message'])
+                    if 'results' in data and data['results']:
+                        return self._parse_openalex_work(data['results'][0])
             except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                logger.warning(f"Fehler bei CrossRef-DOI-Anfrage: {str(e)}")
+                logger.warning(f"Fehler bei OpenAlex-DOI-Anfrage: {str(e)}")
             
             return {}
         
@@ -156,65 +160,60 @@ class CrossRefClient(BaseAPIClient):
         cache_key = self._create_cache_key("query", title, "_".join(authors or []))
         
         def fetch_func():
-            query_parts = []
-            
+            # Bereinigter Titel für die Suche
             if title:
-                # Bereinigter Titel für die Suche
                 clean_title = re.sub(r'[^\w\s]', ' ', title)
                 clean_title = re.sub(r'\s+', ' ', clean_title).strip()
-                if clean_title:
-                    query_parts.append(f'title:"{urllib.parse.quote(clean_title)}"')
+                query = f"title.search:{urllib.parse.quote(clean_title)}"
+            else:
+                return {}  # Ohne Titel können wir keine gute Suche durchführen
             
+            # Autorenfilter hinzufügen, wenn möglich
+            filter_parts = [query]
             if authors and len(authors) > 0:
-                # Verwende den ersten Autor für die Suche
-                first_author = authors[0]
-                # Extrahiere den Nachnamen (letzter Teil)
-                name_parts = first_author.split()
+                #Extrahiere den Nachnamen des ersten Autors
+                name_parts = authors[0].split()
                 if len(name_parts) > 1:
                     last_name = name_parts[-1]
-                    query_parts.append(f'author:"{urllib.parse.quote(last_name)}"')
-                else:
-                    query_parts.append(f'author:"{urllib.parse.quote(first_author)}"')
+                    filter_parts.append(f"author.display_name.search:{urllib.parse.quote(last_name)}")
             
-            if not query_parts:
-                return {}
-            
-            query = " ".join(query_parts)
-            url = f"{self.api_url}?query={query}&rows=5"
+            # Anfrage erstellen
+            url = f"{self.api_url}?filter={';'.join(filter_parts)}&sort=relevance_score:desc&per-page=5"
+            headers = {"Accept": "application/json"}
             
             try:
-                response = self._make_request("get", url)
+                response = self._make_request("get", url, headers=headers)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if 'message' in data and 'items' in data['message'] and data['message']['items']:
-                        # Mehrere Ergebnisse durchgehen und das beste auswählen
-                        best_item = None
+                    if 'results' in data and data['results']:
+                        # Bewerte die Ergebnisse und wähle das beste
+                        best_work = None
                         best_score = -1
                         
-                        for item in data['message']['items'][:5]:  # Nur die ersten 5 prüfen
-                            score = self._score_crossref_item(item, title, authors or [])
+                        for work in data['results'][:5]:
+                            score = self._score_openalex_work(work, title, authors or [])
                             if score > best_score:
                                 best_score = score
-                                best_item = item
+                                best_work = work
                         
                         # Wenn ein gutes Ergebnis gefunden wurde
-                        if best_item and best_score > 10:
-                            logger.debug(f"CrossRef-Ergebnis mit Score {best_score} gefunden")
-                            return self._parse_crossref_message(best_item)
+                        if best_work and best_score > 10:
+                            logger.debug(f"OpenAlex-Ergebnis mit Score {best_score} gefunden")
+                            return self._parse_openalex_work(best_work)
             except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                logger.warning(f"Fehler bei CrossRef-Suche: {str(e)}")
+                logger.warning(f"Fehler bei OpenAlex-Suche: {str(e)}")
             
             return {}
         
         return self._get_cached_or_fetch(cache_key, fetch_func)
     
-    def _parse_crossref_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_openalex_work(self, work: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extrahiert relevante Metadaten aus einer CrossRef-Antwort.
+        Extrahiert relevante Metadaten aus einer OpenAlex-Antwort.
         
         Args:
-            message: CrossRef-Antwortobjekt
+            work: OpenAlex-Antwortobjekt
             
         Returns:
             Extrahierte Metadaten
@@ -222,61 +221,96 @@ class CrossRefClient(BaseAPIClient):
         metadata = {}
         
         # Titel
-        if 'title' in message and message['title']:
-            metadata['title'] = message['title'][0]
+        if 'title' in work:
+            metadata['title'] = work['title']
+        
+        # DOI
+        if 'doi' in work and work['doi']:
+            metadata['doi'] = work['doi']
         
         # Autoren
-        if 'author' in message:
+        if 'authorships' in work:
             authors = []
-            for author in message['author']:
-                name_parts = []
-                if 'given' in author:
-                    name_parts.append(author['given'])
-                if 'family' in author:
-                    name_parts.append(author['family'])
-                if name_parts:
-                    authors.append(' '.join(name_parts))
+            for authorship in work['authorships']:
+                if 'author' in authorship and 'display_name' in authorship['author']:
+                    authors.append(authorship['author']['display_name'])
             if authors:
                 metadata['author'] = authors
         
-        # Journal/Quelle
-        if 'container-title' in message and message['container-title']:
-            metadata['journal'] = message['container-title'][0]
-        
         # Jahr
-        if 'published' in message and 'date-parts' in message['published']:
-            date_parts = message['published']['date-parts'][0]
-            if date_parts and len(date_parts) > 0:
-                metadata['year'] = date_parts[0]
+        if 'publication_year' in work:
+            metadata['year'] = work['publication_year']
         
-        # Verleger
-        if 'publisher' in message:
-            metadata['publisher'] = message['publisher']
+        # Journal/Quelle
+        if 'primary_location' in work and 'source' in work['primary_location']:
+            source = work['primary_location']['source']
+            if 'display_name' in source:
+                metadata['journal'] = source['display_name']
+                
+            # ISSN
+            if 'issn_l' in source:
+                metadata['issn'] = source['issn_l']
         
-        # DOI
-        if 'DOI' in message:
-            metadata['doi'] = message['DOI']
+        # Herausgeber
+        if 'primary_location' in work and 'source' in work['primary_location'] and 'host_organization' in work['primary_location']['source']:
+            if 'display_name' in work['primary_location']['source']['host_organization']:
+                metadata['publisher'] = work['primary_location']['source']['host_organization']['display_name']
         
-        # ISSN
-        if 'ISSN' in message and message['ISSN']:
-            metadata['issn'] = message['ISSN'][0]
+        # Zitationen
+        if 'cited_by_count' in work:
+            metadata['cited_by_count'] = work['cited_by_count']
+        
+        # Fachgebiet
+        if 'concepts' in work and work['concepts']:
+            concepts = []
+            for concept in work['concepts'][:3]:  # Top 3 Konzepte
+                if 'display_name' in concept:
+                    concepts.append(concept['display_name'])
+            if concepts:
+                metadata['keywords'] = concepts
+        
+        # Open Access Status
+        if 'open_access' in work and 'is_oa' in work['open_access']:
+            metadata['is_open_access'] = work['open_access']['is_oa']
         
         # Typ
-        if 'type' in message:
-            metadata['type'] = message['type']
+        if 'type' in work:
+            metadata['type'] = work['type']
         
         # Abstract
-        if 'abstract' in message:
-            metadata['abstract'] = message['abstract']
+        if 'abstract_inverted_index' in work:
+            try:
+                # OpenAlex speichert Abstracts in einem invertierten Index, wir müssen ihn rekonstruieren
+                inverted_index = work['abstract_inverted_index']
+                words = []
+                max_position = 0
+                
+                # Finde die maximale Position
+                for positions in inverted_index.values():
+                    max_position = max(max_position, max(positions) if positions else 0)
+                
+                # Erstelle ein Array für alle Wortpositionen
+                words = [''] * (max_position + 1)
+                
+                # Fülle das Array
+                for word, positions in inverted_index.items():
+                    for pos in positions:
+                        words[pos] = word
+                
+                # Verbinde die Wörter zu einem Text
+                abstract = ' '.join(words)
+                metadata['abstract'] = abstract
+            except Exception as e:
+                logger.warning(f"Fehler beim Rekonstruieren des Abstracts: {str(e)}")
         
         return metadata
     
-    def _score_crossref_item(self, item: Dict[str, Any], title: str, authors: List[str]) -> float:
+    def _score_openalex_work(self, work: Dict[str, Any], title: str, authors: List[str]) -> float:
         """
-        Bewertet ein CrossRef-Ergebnis basierend auf Titel und Autoren.
+        Bewertet ein OpenAlex-Ergebnis basierend auf Titel und Autoren.
         
         Args:
-            item: CrossRef-Ergebnisobjekt
+            work: OpenAlex-Ergebnisobjekt
             title: Zu vergleichender Titel
             authors: Zu vergleichende Autoren
             
@@ -286,31 +320,31 @@ class CrossRefClient(BaseAPIClient):
         score = 0
         
         # Titelvergleich
-        if 'title' in item and item['title'] and title:
-            title_similarity = SequenceMatcher(None, title.lower(), item['title'][0].lower()).ratio()
+        if 'title' in work and title:
+            title_similarity = SequenceMatcher(None, title.lower(), work['title'].lower()).ratio()
             score += title_similarity * 50
         
         # Autorenvergleich
-        if 'author' in item and authors:
+        if 'authorships' in work and authors:
             author_found = False
-            for author in item['author']:
-                if 'family' in author:
+            for authorship in work['authorships']:
+                if 'author' in authorship and 'display_name' in authorship['author']:
+                    author_name = authorship['author']['display_name']
                     for orig_author in authors:
-                        name_parts = orig_author.split()
-                        if name_parts and author['family'].lower() in orig_author.lower():
+                        if orig_author.lower() in author_name.lower() or author_name.lower() in orig_author.lower():
                             author_found = True
                             break
             if author_found:
                 score += 30
         
         # Bonus für vollständige Metadaten
-        if 'published' in item and 'date-parts' in item['published']:
+        if 'publication_year' in work:
             score += 5
-        if 'container-title' in item and item['container-title']:
+        if 'primary_location' in work and 'source' in work['primary_location']:
             score += 5
-        if 'publisher' in item:
+        if 'doi' in work and work['doi']:
             score += 5
-        if 'DOI' in item:
+        if 'cited_by_count' in work and work['cited_by_count'] > 0:
             score += 5
         
         return score
@@ -367,7 +401,7 @@ class CrossRefClient(BaseAPIClient):
             bonus_score += 3
         if 'doi' in metadata and metadata['doi']:
             bonus_score += 5
-        if 'issn' in metadata and metadata['issn']:
+        if 'keywords' in metadata and metadata['keywords']:
             bonus_score += 4
         
         score += bonus_score

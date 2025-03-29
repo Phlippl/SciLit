@@ -1,42 +1,46 @@
 """
-Open Library API Client für SciLit
+Google Books API Client für SciLit
 --------------------------------
-Client für die Open Library API zur Abfrage von Buchmetadaten.
+Client für die Google Books API zur Abfrage von Buchmetadaten.
 """
 
 import re
 import json
 import logging
 import urllib.parse
+import requests
+
 from typing import Dict, List, Any, Optional
 from difflib import SequenceMatcher
 
-from app.api.base_client import BaseAPIClient
+from app.api.BaseAPIClient import BaseAPIClient
 from app.core.metadata.extractor import string_similarity
-from app.config import OPENLIB_API_URL
+from app.config import GOOGLEBOOKS_API_URL, GOOGLEBOOKS_API_KEY
 
 # Logger konfigurieren
-logger = logging.getLogger("scilit.api.openlib")
+logger = logging.getLogger("scilit.api.googlebooks")
 
-class OpenLibraryClient(BaseAPIClient):
+class GoogleBooksClient(BaseAPIClient):
     """
-    Client für die Open Library API.
+    Client für die Google Books API.
     
-    Open Library bietet einen öffentlichen Zugang zu Buchmetadaten, einschließlich
-    Titel, Autoren, Verlagen, ISBNs usw.
+    Google Books bietet umfangreiche Informationen zu Büchern und Publikationen
+    und ermöglicht die Suche nach ISBN, Titel oder Autor.
     
     Attributes:
-        api_url (str): Basis-URL für die Open Library API
+        api_url (str): Basis-URL für die Google Books API
+        api_key (str): API-Schlüssel für die Google Books API
     """
     
     def __init__(self):
-        """Initialisiert den Open Library API Client."""
-        super().__init__(name="openlib")
-        self.api_url = OPENLIB_API_URL
+        """Initialisiert den Google Books API Client."""
+        super().__init__(name="googlebooks")
+        self.api_url = GOOGLEBOOKS_API_URL
+        self.api_key = GOOGLEBOOKS_API_KEY
     
     def enhance_metadata(self, basic_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Erweitert die grundlegenden Metadaten mit Daten aus Open Library.
+        Erweitert die grundlegenden Metadaten mit Daten aus Google Books.
         
         Args:
             basic_metadata: Grundlegende Metadaten aus dem Dokument
@@ -57,38 +61,38 @@ class OpenLibraryClient(BaseAPIClient):
                 isbn = re.sub(r'[^0-9X]', '', value)
                 break
         
-        logger.info(f"Erweitere Metadaten mit Open Library: Titel='{title}', Autoren={authors}, ISBN={isbn}")
+        logger.info(f"Erweitere Metadaten mit Google Books: Titel='{title}', Autoren={authors}, ISBN={isbn}")
         
-        # Metadaten aus Open Library abrufen
-        openlib_metadata = self.fetch_metadata(title, authors, isbn)
-        if not openlib_metadata:
-            logger.debug("Keine Metadaten von Open Library gefunden")
+        # Metadaten aus Google Books abrufen
+        googlebooks_metadata = self.fetch_metadata(title, authors, isbn)
+        if not googlebooks_metadata:
+            logger.debug("Keine Metadaten von Google Books gefunden")
             return basic_metadata
         
         # Bewertung der gefundenen Metadaten
-        score = self._score_metadata(openlib_metadata, title, authors)
-        logger.info(f"Open Library-Metadaten gefunden mit Score {score:.2f}")
+        score = self._score_metadata(googlebooks_metadata, title, authors)
+        logger.info(f"Google Books-Metadaten gefunden mit Score {score:.2f}")
         
         # Bei hohem Score die Metadaten vollständig übernehmen
         if score > 70:
-            logger.debug("Hoher Score: Übernehme alle Open Library-Metadaten")
+            logger.debug("Hoher Score: Übernehme alle Google Books-Metadaten")
             enhanced_metadata = basic_metadata.copy()
-            for key, value in openlib_metadata.items():
+            for key, value in googlebooks_metadata.items():
                 if value:  # Leere Werte nicht übernehmen
                     enhanced_metadata[key] = value
             return enhanced_metadata
         
         # Bei niedrigem Score nur ausgewählte Felder übernehmen
-        logger.debug("Niedriger Score: Übernehme nur ausgewählte Open Library-Metadaten")
-        for key in ['publisher', 'isbn', 'year', 'page_count', 'keywords', 'language']:
-            if key in openlib_metadata and openlib_metadata[key]:
-                basic_metadata[key] = openlib_metadata[key]
+        logger.debug("Niedriger Score: Übernehme nur ausgewählte Google Books-Metadaten")
+        for key in ['publisher', 'isbn', 'year', 'page_count', 'keywords']:
+            if key in googlebooks_metadata and googlebooks_metadata[key]:
+                basic_metadata[key] = googlebooks_metadata[key]
         
         return basic_metadata
     
     def fetch_metadata(self, title: str = None, authors: List[str] = None, isbn: str = None) -> Dict[str, Any]:
         """
-        Ruft Metadaten von Open Library ab, entweder über ISBN oder Titel/Autoren.
+        Ruft Metadaten von Google Books ab, entweder über ISBN oder Titel/Autoren.
         
         Args:
             title: Titel der Publikation
@@ -100,10 +104,9 @@ class OpenLibraryClient(BaseAPIClient):
         """
         # Bei vorhandenem ISBN direkt danach suchen
         if isbn:
-            isbn_metadata = self._fetch_by_isbn(isbn)
-            if isbn_metadata:
-                return isbn_metadata
-            # Ansonsten nach Titel und/oder Autoren suchen
+            return self._fetch_by_isbn(isbn)
+        
+        # Ansonsten nach Titel und/oder Autoren suchen
         if title or authors:
             return self._fetch_by_query(title, authors)
         
@@ -111,7 +114,7 @@ class OpenLibraryClient(BaseAPIClient):
     
     def _fetch_by_isbn(self, isbn: str) -> Dict[str, Any]:
         """
-        Sucht direkt nach einer ISBN in Open Library.
+        Sucht direkt nach einer ISBN in Google Books.
         
         Args:
             isbn: Die ISBN der Publikation
@@ -122,16 +125,22 @@ class OpenLibraryClient(BaseAPIClient):
         cache_key = self._create_cache_key("isbn", isbn)
         
         def fetch_func():
-            url = f"{self.api_url}?isbn={isbn}"
+            query = f"isbn:{isbn}"
+            url = f"{self.api_url}?q={query}&maxResults=1"
+            
+            # API-Key hinzufügen, falls vorhanden
+            if self.api_key:
+                url += f"&key={self.api_key}"
+            
             try:
                 response = self._make_request("get", url)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if 'docs' in data and data['docs']:
-                        return self._parse_openlib_response(data['docs'][0])
+                    if 'items' in data and data['items']:
+                        return self._parse_googlebooks_item(data['items'][0])
             except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                logger.warning(f"Fehler bei Open Library ISBN-Anfrage: {str(e)}")
+                logger.warning(f"Fehler bei Google Books ISBN-Anfrage: {str(e)}")
             
             return {}
         
@@ -161,114 +170,127 @@ class OpenLibraryClient(BaseAPIClient):
                 # Bereinigter Titel für die Suche
                 clean_title = re.sub(r'[^\w\s]', ' ', title)
                 clean_title = re.sub(r'\s+', ' ', clean_title).strip()
-                query_parts.append(f"title:{urllib.parse.quote(clean_title)}")
+                query_parts.append(f"intitle:{urllib.parse.quote(clean_title)}")
             
             if authors and len(authors) > 0:
                 # Verwende den ersten Autor für die Suche
                 first_author = authors[0]
-                name_parts = first_author.split()
-                if len(name_parts) > 1:
-                    last_name = name_parts[-1]
-                    query_parts.append(f"author:{urllib.parse.quote(last_name)}")
-                else:
-                    query_parts.append(f"author:{urllib.parse.quote(first_author)}")
+                query_parts.append(f"inauthor:{urllib.parse.quote(first_author)}")
             
             query = "+".join(query_parts)
-            url = f"{self.api_url}?q={query}&limit=5"
+            url = f"{self.api_url}?q={query}&maxResults=5"
+            
+            # API-Key hinzufügen, falls vorhanden
+            if self.api_key:
+                url += f"&key={self.api_key}"
             
             try:
                 response = self._make_request("get", url)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if 'docs' in data and data['docs']:
+                    if 'items' in data and data['items']:
                         # Bewerte die Ergebnisse und wähle das beste
-                        best_doc = None
+                        best_item = None
                         best_score = -1
                         
-                        for doc in data['docs'][:5]:
-                            score = self._score_openlib_doc(doc, title, authors or [])
+                        for item in data['items'][:5]:
+                            score = self._score_googlebooks_item(item, title, authors or [])
                             if score > best_score:
                                 best_score = score
-                                best_doc = doc
+                                best_item = item
                         
                         # Wenn ein gutes Ergebnis gefunden wurde
-                        if best_doc and best_score > 10:
-                            logger.debug(f"Open Library-Ergebnis mit Score {best_score} gefunden")
-                            return self._parse_openlib_response(best_doc)
+                        if best_item and best_score > 10:
+                            logger.debug(f"Google Books-Ergebnis mit Score {best_score} gefunden")
+                            return self._parse_googlebooks_item(best_item)
             except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-                logger.warning(f"Fehler bei Open Library Suche: {str(e)}")
+                logger.warning(f"Fehler bei Google Books-Suche: {str(e)}")
             
             return {}
         
         return self._get_cached_or_fetch(cache_key, fetch_func)
     
-    def _parse_openlib_response(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+    def _parse_googlebooks_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extrahiert relevante Metadaten aus einer Open Library-Antwort.
+        Extrahiert relevante Metadaten aus einem Google Books-Item.
         
         Args:
-            doc: Open Library-Dokumentobjekt
+            item: Google Books-Item
             
         Returns:
             Extrahierte Metadaten
         """
         metadata = {}
         
+        # Volumeinfo extrahieren
+        if 'volumeInfo' not in item:
+            return metadata
+        
+        vol_info = item['volumeInfo']
+        
         # Titel
-        if 'title' in doc:
-            metadata['title'] = doc['title']
+        if 'title' in vol_info:
+            metadata['title'] = vol_info['title']
+            # Untertitel, falls vorhanden
+            if 'subtitle' in vol_info:
+                metadata['title'] += ": " + vol_info['subtitle']
         
         # Autoren
-        if 'author_name' in doc:
-            metadata['author'] = doc['author_name']
+        if 'authors' in vol_info:
+            metadata['author'] = vol_info['authors']
         
         # Erscheinungsjahr
-        if 'first_publish_year' in doc:
-            metadata['year'] = doc['first_publish_year']
-        elif 'publish_year' in doc and doc['publish_year']:
-            metadata['year'] = min(doc['publish_year'])  # Nehme das früheste Jahr
+        if 'publishedDate' in vol_info:
+            # Format kann YYYY, YYYY-MM oder YYYY-MM-DD sein
+            date_str = vol_info['publishedDate']
+            year_match = re.match(r'(\d{4})', date_str)
+            if year_match:
+                metadata['year'] = int(year_match.group(1))
         
         # Verlag
-        if 'publisher' in doc and doc['publisher']:
-            metadata['publisher'] = doc['publisher'][0]  # Nehme den ersten Verlag
+        if 'publisher' in vol_info:
+            metadata['publisher'] = vol_info['publisher']
         
         # ISBN
-        if 'isbn' in doc and doc['isbn']:
-            metadata['isbn'] = doc['isbn'][0]  # Nehme die erste ISBN
-        
-        # Sprache
-        if 'language' in doc and doc['language']:
-            languages = []
-            for lang in doc['language']:
-                if lang == 'eng':
-                    languages.append('en')
-                elif lang == 'ger' or lang == 'deu':
-                    languages.append('de')
-                else:
-                    languages.append(lang)
-            if languages:
-                metadata['language'] = '/'.join(languages)
+        if 'industryIdentifiers' in vol_info:
+            for identifier in vol_info['industryIdentifiers']:
+                if identifier['type'] == 'ISBN_13':
+                    metadata['isbn'] = identifier['identifier']
+                    break
+                elif identifier['type'] == 'ISBN_10' and 'isbn' not in metadata:
+                    metadata['isbn'] = identifier['identifier']
         
         # Seitenzahl
-        if 'number_of_pages_median' in doc:
-            metadata['page_count'] = doc['number_of_pages_median']
+        if 'pageCount' in vol_info:
+            metadata['page_count'] = vol_info['pageCount']
         
-        # Themen/Schlagwörter
-        keywords = []
-        if 'subject' in doc and doc['subject']:
-            for subject in doc['subject'][:5]:  # Begrenze auf 5 Schlagwörter
-                keywords.append(subject)
-        metadata['keywords'] = keywords
+        # Sprache
+        if 'language' in vol_info:
+            language = vol_info['language']
+            if language == 'en':
+                metadata['language'] = 'en'
+            elif language == 'de':
+                metadata['language'] = 'de'
+            else:
+                metadata['language'] = language
+        
+        # Kategorien / Schlagwörter
+        if 'categories' in vol_info:
+            metadata['keywords'] = vol_info['categories']
+        
+        # Beschreibung / Abstract
+        if 'description' in vol_info:
+            metadata['abstract'] = vol_info['description']
         
         return metadata
     
-    def _score_openlib_doc(self, doc: Dict[str, Any], title: str, authors: List[str]) -> float:
+    def _score_googlebooks_item(self, item: Dict[str, Any], title: str, authors: List[str]) -> float:
         """
-        Bewertet ein Open Library-Ergebnis basierend auf Titel und Autoren.
+        Bewertet ein Google Books-Ergebnis basierend auf Titel und Autoren.
         
         Args:
-            doc: Open Library-Dokumentobjekt
+            item: Google Books-Item
             title: Zu vergleichender Titel
             authors: Zu vergleichende Autoren
             
@@ -277,15 +299,24 @@ class OpenLibraryClient(BaseAPIClient):
         """
         score = 0
         
+        if 'volumeInfo' not in item:
+            return score
+        
+        vol_info = item['volumeInfo']
+        
         # Titelvergleich
-        if 'title' in doc and title:
-            title_similarity = SequenceMatcher(None, title.lower(), doc['title'].lower()).ratio()
+        if 'title' in vol_info and title:
+            item_title = vol_info['title']
+            if 'subtitle' in vol_info:
+                item_title += ": " + vol_info['subtitle']
+            
+            title_similarity = SequenceMatcher(None, title.lower(), item_title.lower()).ratio()
             score += title_similarity * 50
         
         # Autorenvergleich
-        if 'author_name' in doc and authors:
+        if 'authors' in vol_info and authors:
             author_found = False
-            for author in doc['author_name']:
+            for author in vol_info['authors']:
                 for orig_author in authors:
                     if orig_author.lower() in author.lower() or author.lower() in orig_author.lower():
                         author_found = True
@@ -294,13 +325,13 @@ class OpenLibraryClient(BaseAPIClient):
                 score += 30
         
         # Bonus für vollständige Metadaten
-        if 'first_publish_year' in doc or ('publish_year' in doc and doc['publish_year']):
+        if 'publishedDate' in vol_info:
             score += 5
-        if 'publisher' in doc and doc['publisher']:
+        if 'publisher' in vol_info:
             score += 5
-        if 'isbn' in doc and doc['isbn']:
+        if 'industryIdentifiers' in vol_info:
             score += 5
-        if 'subject' in doc and doc['subject']:
+        if 'categories' in vol_info:
             score += 5
         
         return score
