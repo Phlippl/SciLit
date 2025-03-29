@@ -11,11 +11,8 @@ import logging
 import uuid
 import json
 
-# Eigene Module importieren
-# Eigene Module importieren
-from app.core.document_manager import get_document_manager
-# Hinzufügen, falls document_processor direkt verwendet wird
-from app.core.document_processor import DocumentProcessor
+from app.core.document.manager import get_document_manager
+from app.core.document.processor import DocumentProcessor
 
 # Logging konfigurieren
 logging.basicConfig(
@@ -38,7 +35,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROCESSED_DIR, exist_ok=True)
 
 # Document Manager initialisieren
-document_manager = get_document_manager(BASE_DIR)
+document_manager = get_document_manager()
 
 # FastAPI-App erstellen
 app = FastAPI(title="SciLit", description="Wissenschaftliche Literaturverwaltung mit KI")

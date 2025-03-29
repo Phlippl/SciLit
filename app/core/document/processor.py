@@ -15,7 +15,7 @@ from app.config import UPLOAD_DIR, PROCESSED_DIR, DEFAULT_PROCESSING_OPTIONS
 from app.core.document.parsers import determine_parser_for_file, DocumentParsingError
 from app.core.metadata.extractor import extract_title_from_text, extract_authors_from_text
 from app.api.MetadataAPIClientFactory import get_metadata_api_factory
-from app.core.analysis.text_splitter import EnhancedTextSplitter
+from app.core.analysis.text_splitter import TextSplitter
 from app.utils.file_utils import generate_unique_id, ensure_dir_exists
 from app.utils.error_handling import DocumentProcessingError
 
@@ -70,7 +70,7 @@ class DocumentProcessor:
         ensure_dir_exists(self.processed_dir)
         
         # Hilfsobjekte initialisieren
-        self.text_splitter = EnhancedTextSplitter()
+        self.text_splitter = TextSplitter()
         
         # API-Factory für Metadaten
         self.api_factory = get_metadata_api_factory()
@@ -148,7 +148,7 @@ class DocumentProcessor:
             metadata = self.enhance_metadata(basic_metadata)
             
             # Text in Chunks aufteilen
-            chunks = self.text_splitter.create_improved_chunks(text, metadata.get("language", self.language))
+            chunks = self.text_splitter.split_text_into_chunks(text, metadata.get("language", self.language))
             
             # Ergebnisse speichern
             self._save_processing_results(doc_dir, text, metadata, chunks)

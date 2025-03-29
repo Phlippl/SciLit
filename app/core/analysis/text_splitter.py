@@ -330,3 +330,22 @@ class TextSplitter:
             "negative": round(negative_ratio, 3),
             "neutral": round(neutral_ratio, 3)
         }
+    
+    def create_improved_chunks(self, text: str, language: str = "auto") -> List[Dict[str, Any]]:
+        """
+        Kompatibilitätsmethode, die split_text_into_chunks aufruft und verbesserte Chunks zurückgibt.
+        
+        Dies dient der Konsistenz mit älteren Versionen der Codebase.
+        
+        Args:
+            text: Der zu teilende Text
+            language: Die Sprache des Textes
+                
+        Returns:
+            Liste von verbesserten Chunks mit Text und Metadaten
+        """
+        # Erstelle Basis-Chunks
+        chunks = self.split_text_into_chunks(text, language)
+        
+        # Verbessere die Qualität der Chunks durch zusätzliche Analysen
+        return self.improve_chunk_quality(chunks)
