@@ -121,6 +121,7 @@ class MetadataAPIClientFactory:
                 'k10plus': True
             }
         
+        # Metadaten-Quellen normalisieren (use_-Präfixe entfernen)
         normalized_sources = {}
         for key, value in metadata_sources.items():
             if key.startswith("use_"):
@@ -141,7 +142,7 @@ class MetadataAPIClientFactory:
         # Ergebnisse aus allen aktivierten APIs sammeln
         api_results = []
 
-        # Wichtig: normalized_sources statt metadata_sources verwenden!
+        # KORRIGIERTER CODE: Durch normalized_sources iterieren (nicht metadata_sources)
         for client_type, enabled in normalized_sources.items():
             if not enabled:
                 continue
