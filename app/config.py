@@ -34,6 +34,9 @@ OPENLIB_API_URL = "https://openlibrary.org/search.json"
 GOOGLEBOOKS_API_URL = "https://www.googleapis.com/books/v1/volumes"
 K10PLUS_API_URL = "https://sru.k10plus.de/opac-de-627"
 
+# Google Books API Konfiguration
+GOOGLEBOOKS_API_KEY = os.getenv("GOOGLEBOOKS_API_KEY", "")  # Leer lassen oder einen Schlüssel setzen, falls vorhanden
+
 # Default-Optionen für Dokumentenverarbeitung
 DEFAULT_PROCESSING_OPTIONS = {
     "ocr_if_needed": True,
