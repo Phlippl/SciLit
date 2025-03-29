@@ -165,6 +165,15 @@
             selectedFilesContainer.innerHTML = '';
             uploadButton.disabled = true;
         });
+        
+        // Klick auf Drop-Area öffnet Dateiauswahl
+        dropArea.addEventListener('click', function() {
+            fileInput.click();
+        });
     });
 </script>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/pages/upload.css') }}">
 {% endblock %}

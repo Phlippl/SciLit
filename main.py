@@ -1,61 +1,71 @@
-import os
+"""
+SciLit Hauptanwendung
+--------------------
+FastAPI-Hauptanwendung für die SciLit-Plattform.
+"""
+
+import logging
 import datetime
+import os
+import json
+import uuid
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
-import logging
-import uuid
-import json
 
-from app.core.document.manager import get_document_manager
-from app.core.document.processor import DocumentProcessor
+# Importe aus app-Modulen
+from app.config import (
+    APP_NAME, APP_DESCRIPTION, DEBUG, HOST, PORT, 
+    STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR, LOG_FORMAT, LOG_LEVEL
+)
+from app.services.document_service import get_document_service
+from app.services.search_service import get_search_service
+from app.utils.error_handling import handle_exception
+from app.routes import search_routes
 
 # Logging konfigurieren
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=LOG_LEVEL,
+    format=LOG_FORMAT
 )
 logger = logging.getLogger("scilit")
 
-# Verzeichnisse im Hauptverzeichnis
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-PROCESSED_DIR = os.path.join(BASE_DIR, "processed")
+# Verzeichnisse erstellen, falls sie nicht existieren
+Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-# Verzeichnisse erstellen
-os.makedirs(STATIC_DIR, exist_ok=True)
-os.makedirs(TEMPLATES_DIR, exist_ok=True)
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(PROCESSED_DIR, exist_ok=True)
-
-# Document Manager initialisieren
-document_manager = get_document_manager()
+# Services initialisieren
+document_service = get_document_service()
+search_service = get_search_service()
 
 # FastAPI-App erstellen
-app = FastAPI(title="SciLit", description="Wissenschaftliche Literaturverwaltung mit KI")
+app = FastAPI(title=APP_NAME, description=APP_DESCRIPTION)
 
 # Statische Dateien und Templates konfigurieren
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+logger.info(f"Statische Dateien aus: {STATIC_DIR}")
+logger.info(f"Templates aus: {TEMPLATES_DIR}")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Routen aus anderen Modulen einbinden
+app.include_router(search_routes.router)
 
 # Hintergrundverarbeitung von Dokumenten
-def process_document_task(filename: str, options: Dict[str, Any]):
+def process_document_task(filepath: str, options: Dict[str, Any]):
     """Verarbeitet ein Dokument im Hintergrund."""
     try:
-        document_manager.process_document(filename, options)
-        logger.info(f"Dokument {filename} erfolgreich verarbeitet")
+        document_service.process_uploaded_document(filepath, options)
+        logger.info(f"Dokument {filepath} erfolgreich verarbeitet")
     except Exception as e:
-        logger.error(f"Fehler bei der Verarbeitung von {filename}: {str(e)}")
+        logger.error(f"Fehler bei der Verarbeitung von {filepath}: {str(e)}")
 
 # Hilfsfunktion für Template-Kontext
 def get_base_context(request: Request):
-    """Fügt dem Template-Kontext Basiswerte hinzu, die in allen Templates benötigt werden."""
+    """Fügt dem Template-Kontext Basiswerte hinzu."""
     return {
         "request": request,
         "year": datetime.datetime.now().year
@@ -70,8 +80,8 @@ async def read_root(request: Request):
     """Startseite mit Übersicht der neuesten Dokumente."""
     context = get_base_context(request)
     
-    # Füge die neuesten Dokumente hinzu
-    documents = document_manager.get_all_documents()
+    # Die neuesten Dokumente hinzufügen
+    documents = document_service.get_all_documents()
     # Sortiere nach Hinzufügedatum (neueste zuerst)
     documents.sort(key=lambda x: x.get('added_at', ''), reverse=True)
     # Beschränke auf die neuesten 4
@@ -91,12 +101,10 @@ async def upload_page(request: Request):
     context = get_base_context(request)
     return templates.TemplateResponse("upload.html", context)
 
-# Diese Änderungen in main.py vornehmen
-
-# Entferne die alte Route für /upload oder stelle sicher, dass sie zur /upload-with-review weitergeleitet wird
 @app.post("/upload")
-async def upload_file_redirect(
+async def upload_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     extract_metadata: bool = Form(True),
     ocr_if_needed: bool = Form(True),
@@ -107,13 +115,7 @@ async def upload_file_redirect(
     use_googlebooks: bool = Form(True),
     use_openalex: bool = Form(True)
 ):
-    """Leitet zur Upload-mit-Review-Route weiter, damit Metadaten immer überprüft werden können."""
-    # Erstelle eine eindeutige Session-ID
-    session_id = str(uuid.uuid4())
-    
-    # Speichere die Dateien temporär
-    uploaded_files = []
-    
+    """Nimmt Dokumente direkt entgegen und verarbeitet sie."""
     # Verarbeitungsoptionen
     processing_options = {
         "ocr_if_needed": ocr_if_needed,
@@ -125,6 +127,8 @@ async def upload_file_redirect(
         "use_openalex": use_openalex
     }
     
+    results = []
+    
     # Dateien verarbeiten
     for file in files:
         try:
@@ -133,47 +137,28 @@ async def upload_file_redirect(
             with open(file_path, "wb") as f:
                 contents = await file.read()
                 f.write(contents)
-            
-            # Metadaten extrahieren
-            processor = document_manager.processor
-            try:
-                text, basic_metadata = processor.extract_content_and_metadata(file_path)
-                enhanced_metadata = processor.enhance_metadata(basic_metadata)
                 
-                uploaded_files.append({
-                    "filename": file.filename,
-                    "size": len(contents),
-                    "status": "uploaded",
-                    "metadata": enhanced_metadata,
-                    "options": processing_options
-                })
-                
-            except Exception as e:
-                logger.error(f"Fehler bei der Metadatenextraktion von {file.filename}: {str(e)}")
-                uploaded_files.append({
-                    "filename": file.filename,
-                    "size": len(contents),
-                    "status": "failed",
-                    "error": f"Fehler bei der Metadatenextraktion: {str(e)}"
-                })
+            # Dokument im Hintergrund verarbeiten
+            background_tasks.add_task(process_document_task, file_path, processing_options)
             
-            logger.info(f"Datei für Metadatenüberprüfung hochgeladen: {file.filename}")
+            results.append({
+                "filename": file.filename,
+                "status": "processing",
+                "message": "Wird im Hintergrund verarbeitet"
+            })
+            
+            logger.info(f"Datei hochgeladen und Verarbeitung gestartet: {file.filename}")
             
         except Exception as e:
             logger.error(f"Fehler beim Upload von {file.filename}: {str(e)}")
-            uploaded_files.append({
+            results.append({
                 "filename": file.filename,
-                "error": str(e),
-                "status": "failed"
+                "status": "error",
+                "message": str(e)
             })
     
-    # Speichere die Session-Daten
-    session_file = os.path.join(UPLOAD_DIR, f"session_{session_id}.json")
-    with open(session_file, 'w', encoding='utf-8') as f:
-        json.dump(uploaded_files, f, ensure_ascii=False, indent=2)
-    
-    # Weiterleitung zur Überprüfungsseite
-    return RedirectResponse(url=f"/review-metadata?session={session_id}", status_code=303)
+    # Umleitung zur Dokumentenliste
+    return RedirectResponse(url="/documents", status_code=303)
 
 @app.post("/upload-with-review")
 async def upload_for_review(
@@ -188,12 +173,10 @@ async def upload_for_review(
     use_googlebooks: bool = Form(True),
     use_openalex: bool = Form(True)
 ):
-    """Lädt Dateien hoch und extrahiert Metadaten für die Überprüfung, bevor die Dokumente verarbeitet werden."""
-    context = get_base_context(request)
-    uploaded_files = []
-    
+    """Lädt Dateien hoch und extrahiert Metadaten für die Überprüfung."""
     # Erstelle eine eindeutige Session-ID
     session_id = str(uuid.uuid4())
+    uploaded_files = []
     
     # Verarbeitungsoptionen
     processing_options = {
@@ -216,10 +199,10 @@ async def upload_for_review(
                 f.write(contents)
             
             # Metadaten extrahieren
-            processor = document_manager.processor
             try:
-                text, basic_metadata = processor.extract_content_and_metadata(file_path)
-                enhanced_metadata = processor.enhance_metadata(basic_metadata)
+                # Verwende den DocumentService für die Extraktion
+                text, basic_metadata = document_service.document_processor.extract_content_and_metadata(file_path)
+                enhanced_metadata = document_service.document_processor.enhance_metadata(basic_metadata)
                 
                 uploaded_files.append({
                     "filename": file.filename,
@@ -258,14 +241,13 @@ async def upload_for_review(
 
 @app.get("/review-metadata", response_class=HTMLResponse)
 async def review_metadata_page(request: Request, session: str):
-    """Zeigt die Seite zur Überprüfung der extrahierten Metadaten aus hochgeladenen Dokumenten an."""
+    """Zeigt die Seite zur Überprüfung der extrahierten Metadaten an."""
     context = get_base_context(request)
     
     # Session-Daten laden
     session_file = os.path.join(UPLOAD_DIR, f"session_{session}.json")
     
     if not os.path.exists(session_file):
-        # Wenn die Session nicht existiert, zurück zur Upload-Seite leiten
         logger.error(f"Session-Datei nicht gefunden: {session_file}")
         return RedirectResponse(url="/upload", status_code=303)
     
@@ -307,10 +289,11 @@ async def process_reviewed_files(
         for file_info in reviewed_files:
             try:
                 filename = file_info["filename"]
-                options = file_info["options"]
+                filepath = os.path.join(UPLOAD_DIR, filename)
+                options = file_info.get("options", {})
                 
                 # Starte die Verarbeitung im Hintergrund
-                background_tasks.add_task(process_document_task, filename, options)
+                background_tasks.add_task(process_document_task, filepath, options)
                 
                 results.append({
                     "filename": filename,
@@ -350,10 +333,7 @@ async def extract_metadata(
     request: Request,
     file: UploadFile = File(...)
 ):
-    """
-    Extrahiert Metadaten aus einer PDF-Datei, ohne sie vollständig zu verarbeiten.
-    Gibt die extrahierten Metadaten zurück, damit der Benutzer sie überprüfen und bearbeiten kann.
-    """
+    """Extrahiert Metadaten aus einer PDF-Datei ohne vollständige Verarbeitung."""
     try:
         # Temporäres Speichern der hochgeladenen Datei
         temp_file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
@@ -361,15 +341,12 @@ async def extract_metadata(
             contents = await file.read()
             f.write(contents)
         
-        # Metadaten extrahieren mit dem DocumentProcessor
-        processor = document_manager.processor
-        text, basic_metadata = processor.extract_content_and_metadata(temp_file_path)
-        
-        # Erweiterte Metadaten über APIs abrufen
-        enhanced_metadata = processor.enhance_metadata(basic_metadata)
+        # Metadaten extrahieren mit dem DocumentService
+        text, basic_metadata = document_service.document_processor.extract_content_and_metadata(temp_file_path)
+        enhanced_metadata = document_service.document_processor.enhance_metadata(basic_metadata)
         
         # Löschen der temporären Datei
-        os.remove(temp_file_path)
+        os.unlink(temp_file_path)
         
         # Rückgabe der extrahierten Metadaten
         return {
@@ -379,11 +356,12 @@ async def extract_metadata(
         }
         
     except Exception as e:
+        error_info = handle_exception(e)
         logger.error(f"Fehler bei der Metadatenextraktion von {file.filename}: {str(e)}")
         
         # Versuche, die temporäre Datei zu löschen, falls sie noch existiert
         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+            os.unlink(temp_file_path)
             
         return {
             "success": False,
@@ -393,9 +371,9 @@ async def extract_metadata(
 
 @app.get("/extract-metadata", response_class=HTMLResponse)
 async def extract_metadata_page(request: Request):
-    """Leitet zur Upload-Seite mit einem Hinweis weiter, dass die Metadatenextraktion jetzt dort integriert ist."""
-    # Redirect zur Upload-Seite mit einem Parameter, der ein Hinweisbanner anzeigen könnte
-    return RedirectResponse(url="/upload?from=extract", status_code=303)
+    """Zeigt die Metadatenextraktion-Seite an."""
+    context = get_base_context(request)
+    return templates.TemplateResponse("extract_metadata.html", context)
 
 #
 # Dokument-bezogene Routen
@@ -406,38 +384,39 @@ async def list_documents(request: Request):
     """Zeigt eine Liste aller Dokumente in der Bibliothek an."""
     context = get_base_context(request)
     
-    # Alle Dokumente aus dem Manager holen
-    documents = document_manager.get_all_documents()
+    # Alle Dokumente aus dem DocumentService holen
+    documents = document_service.get_all_documents()
     
     # Dokumente aufbereiten und nötige Felder hinzufügen
     for doc in documents:
         # Fehlende Felder mit Standardwerten auffüllen
-        if 'author' not in doc['metadata'] or not doc['metadata']['author']:
-            doc['metadata']['author'] = ['Unbekannt']
-        elif isinstance(doc['metadata']['author'], str):
-            doc['metadata']['author'] = [doc['metadata']['author']]
+        metadata = doc.get('metadata', {})
+        if 'author' not in metadata or not metadata['author']:
+            metadata['author'] = ['Unbekannt']
+        elif isinstance(metadata['author'], str):
+            metadata['author'] = [metadata['author']]
             
-        if 'title' not in doc['metadata'] or not doc['metadata']['title']:
-            doc['metadata']['title'] = os.path.basename(doc['filename'])
+        if 'title' not in metadata or not metadata['title']:
+            metadata['title'] = os.path.basename(doc.get('filename', 'Unbekannt'))
             
-        if 'year' not in doc['metadata'] or not doc['metadata']['year']:
-            doc['metadata']['year'] = 'Unbekannt'
+        if 'year' not in metadata or not metadata['year']:
+            metadata['year'] = 'Unbekannt'
             
-        if 'source' not in doc['metadata'] or not doc['metadata']['source']:
-            if 'journal' in doc['metadata'] and doc['metadata']['journal']:
-                doc['metadata']['source'] = doc['metadata']['journal']
-            elif 'publisher' in doc['metadata'] and doc['metadata']['publisher']:
-                doc['metadata']['source'] = doc['metadata']['publisher']
+        if 'source' not in metadata:
+            if 'journal' in metadata and metadata['journal']:
+                metadata['source'] = metadata['journal']
+            elif 'publisher' in metadata and metadata['publisher']:
+                metadata['source'] = metadata['publisher']
             else:
-                doc['metadata']['source'] = 'Unbekannt'
+                metadata['source'] = 'Unbekannt'
     
     # Statistiken
-    stats = document_manager.get_statistics()
+    stats = document_service.get_statistics()
     
     context["documents"] = documents
-    context["total_pages"] = stats["total_pages"]
-    context["total_chunks"] = stats["total_chunks"]
-    context["storage_used"] = stats["storage_used"]
+    context["total_pages"] = stats.get("total_pages", 0)
+    context["total_chunks"] = stats.get("total_chunks", 0)
+    context["storage_used"] = stats.get("storage_used", "0 B")
     
     return templates.TemplateResponse("documents.html", context)
 
@@ -446,15 +425,15 @@ async def view_document(request: Request, doc_id: str):
     """Zeigt die Detailansicht eines Dokuments an."""
     context = get_base_context(request)
     
-    # Dokument aus dem Manager holen
-    document = document_manager.get_document(doc_id)
+    # Dokument aus dem DocumentService holen
+    document = document_service.get_document(doc_id)
     
     if not document:
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
     
     # Vollständige Metadaten und Chunks holen
-    metadata = document_manager.get_document_metadata(doc_id)
-    chunks = document_manager.get_document_chunks(doc_id)
+    metadata = document_service.get_document_metadata(doc_id)
+    chunks = document_service.get_document_chunks(doc_id)
     
     # Kontext vorbereiten
     context["document"] = document
@@ -464,105 +443,80 @@ async def view_document(request: Request, doc_id: str):
     
     return templates.TemplateResponse("document_detail.html", context)
 
-@app.get("/documents/{doc_id}/metadata", response_class=JSONResponse)
-async def get_document_metadata(doc_id: str):
-    """Gibt die Metadaten eines Dokuments im JSON-Format zurück."""
-    # Metadaten abrufen
-    metadata = document_manager.get_document_metadata(doc_id)
-    
-    if not metadata:
-        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
-    
-    return metadata
-
 @app.post("/documents/{doc_id}/metadata")
-async def update_document_metadata(doc_id: str, metadata: Dict[str, Any]):
+async def update_document_metadata(
+    doc_id: str, 
+    title: Optional[str] = Form(None),
+    authors: Optional[str] = Form(None),
+    year: Optional[str] = Form(None),
+    journal: Optional[str] = Form(None),
+    publisher: Optional[str] = Form(None),
+    doi: Optional[str] = Form(None),
+    isbn: Optional[str] = Form(None)
+):
     """Aktualisiert die Metadaten eines Dokuments."""
+    # Metadaten zusammenbauen
+    metadata = {}
+    if title:
+        metadata["title"] = title
+    if authors:
+        metadata["author"] = [author.strip() for author in authors.split(',')]
+    if year:
+        try:
+            metadata["year"] = int(year)
+        except:
+            metadata["year"] = year
+    if journal:
+        metadata["journal"] = journal
+    if publisher:
+        metadata["publisher"] = publisher
+    if doi:
+        metadata["doi"] = doi
+    if isbn:
+        metadata["isbn"] = isbn
+    
     # Metadaten aktualisieren
-    success = document_manager.update_document_metadata(doc_id, metadata)
+    success = document_service.update_document_metadata(doc_id, metadata)
     
     if not success:
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden oder Aktualisierung fehlgeschlagen")
     
-    return {"status": "success", "message": "Metadaten aktualisiert"}
+    # Zurück zur Dokument-Detailseite
+    return RedirectResponse(url=f"/documents/{doc_id}", status_code=303)
 
-@app.post("/documents/{doc_id}/reprocess")
-async def reprocess_document(request: Request, doc_id: str, background_tasks: BackgroundTasks):
+@app.post("/documents/{doc_id}/reprocess", response_class=JSONResponse)
+async def reprocess_document(doc_id: str, background_tasks: BackgroundTasks):
     """Verarbeitet ein bestehendes Dokument neu mit dem DocumentProcessor."""
-    # Überprüfen, ob das Dokument existiert
-    document = document_manager.get_document(doc_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
-    
     try:
-        # Dateinamen extrahieren
-        filename = document['filename']
+        # Dokument im Hintergrund neu verarbeiten
+        background_tasks.add_task(
+            document_service.reprocess_document,
+            doc_id,
+            None  # Standard-Optionen verwenden
+        )
         
-        # Optionen für die Verarbeitung
-        options = {
-            "ocr_if_needed": True,
-            "language": document['metadata'].get('language', 'auto'),
-            "use_crossref": True,
-            "use_openlib": True,
-            "use_k10plus": True,
-            "use_googlebooks": True,
-            "use_openalex": True
+        return {
+            "success": True,
+            "message": f"Dokument wird im Hintergrund neu verarbeitet."
         }
-        
-        # Verarbeitung im Hintergrund starten
-        background_tasks.add_task(process_document_task, filename, options)
-        
-        return {"status": "success", "message": f"Dokument {filename} wird im Hintergrund neu verarbeitet."}
     
     except Exception as e:
-        logger.error(f"Fehler bei der Neuverarbeitung von {doc_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fehler bei der Neuverarbeitung: {str(e)}")
+        error_info = handle_exception(e)
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):
     """Löscht ein Dokument und alle zugehörigen Dateien."""
     # Dokument löschen
-    success = document_manager.delete_document(doc_id)
+    success = document_service.delete_document(doc_id)
     
     if not success:
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden oder Löschung fehlgeschlagen")
     
-    return {"status": "success", "message": "Dokument gelöscht"}
-
-#
-# Such-bezogene Routen
-#
-
-@app.get("/search", response_class=HTMLResponse)
-async def search_page(request: Request):
-    """Zeigt die Suchseite an."""
-    context = get_base_context(request)
-    return templates.TemplateResponse("search.html", context)
-
-@app.post("/search")
-async def search_documents(request: Request, query: str = Form(...)):
-    """Führt eine Suche durch und zeigt die Ergebnisse an."""
-    context = get_base_context(request)
-    
-    # Dummy-Ergebnisse für den Anfang
-    results = [
-        {
-            "text": "Beispiel-Ergebnis 1 für die Anfrage: " + query,
-            "source": "Beispiel-Paper (Smith et al., 2023)",
-            "relevance": 0.95
-        },
-        {
-            "text": "Beispiel-Ergebnis 2 für die Anfrage: " + query,
-            "source": "Beispiel-Buch (Johnson, 2022)",
-            "relevance": 0.85
-        }
-    ]
-    
-    context["query"] = query
-    context["results"] = results
-    context["search_type"] = "question"
-    
-    return templates.TemplateResponse("results.html", context)
+    return {"success": True, "message": "Dokument gelöscht"}
 
 if __name__ == "__main__":
     # Browser automatisch öffnen (optional)
@@ -572,10 +526,10 @@ if __name__ == "__main__":
     
     def open_browser():
         time.sleep(2)  # 2 Sekunden warten
-        webbrowser.open('http://localhost:8000')
+        webbrowser.open(f'http://{HOST}:{PORT}')
     
     # Browser in einem separaten Thread öffnen
     threading.Thread(target=open_browser).start()
     
     # Server starten
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=DEBUG)

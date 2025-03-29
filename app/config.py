@@ -69,7 +69,7 @@ LOG_FILE = LOG_DIR / "scilit.log"
 APP_NAME = "SciLit"
 APP_DESCRIPTION = "Wissenschaftliche Literaturverwaltung mit KI"
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
-HOST = os.getenv("HOST", "0.0.0.0")
+HOST = os.getenv("HOST", "localhost")
 PORT = int(os.getenv("PORT", 8000))
 
 # Chunk-Konfiguration für Textanalysis
