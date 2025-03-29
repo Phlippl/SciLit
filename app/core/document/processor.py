@@ -5,6 +5,7 @@ Hauptklasse für die Koordination der Dokumentenverarbeitung.
 """
 
 import os
+import json
 import logging
 import shutil
 from typing import Dict, List, Optional, Tuple, Any
@@ -13,9 +14,10 @@ from pathlib import Path
 from app.config import UPLOAD_DIR, PROCESSED_DIR, DEFAULT_PROCESSING_OPTIONS
 from app.core.document.parsers import determine_parser_for_file, DocumentParsingError
 from app.core.metadata.extractor import extract_title_from_text, extract_authors_from_text
-from app.core.metadata.api_client import MetadataAPIClient
-from app.core.analysis.text_splitter import TextSplitter
+from app.api.factory import get_metadata_api_factory
+from app.core.analysis.text_splitter import EnhancedTextSplitter
 from app.utils.file_utils import generate_unique_id, ensure_dir_exists
+from app.utils.error_handling import DocumentProcessingError
 
 # Logger konfigurieren
 logger = logging.getLogger("scilit.document.processor")
@@ -68,10 +70,14 @@ class DocumentProcessor:
         ensure_dir_exists(self.processed_dir)
         
         # Hilfsobjekte initialisieren
-        self.text_splitter = TextSplitter()
-        self.api_client = MetadataAPIClient(self.metadata_sources)
+        self.text_splitter = EnhancedTextSplitter()
+        
+        # API-Factory für Metadaten
+        self.api_factory = get_metadata_api_factory()
+        
+        logger.debug(f"DocumentProcessor initialisiert mit OCR={self.ocr_if_needed}, Sprache={self.language}")
     
-    def process_document(self, filepath: str, options: Dict[str, Any] = None) -> Dict[str, Any]:
+    def process_document(self, filepath: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Verarbeitet ein Dokument vollständig.
         
@@ -89,7 +95,7 @@ class DocumentProcessor:
             FileNotFoundError: Wenn die Datei nicht gefunden wird
             DocumentParsingError: Bei Problemen mit der Dokumentenanalyse
             ValueError: Bei Problemen mit den Verarbeitungsoptionen
-            IOError: Bei Problemen mit Dateisystem-Operationen
+            DocumentProcessingError: Bei allgemeinen Verarbeitungsfehlern
         """
         filepath = os.path.abspath(filepath)
         logger.info(f"Verarbeite Dokument: {filepath}")
@@ -113,6 +119,9 @@ class DocumentProcessor:
                 if key.startswith("use_") and key in self.metadata_sources:
                     original_options[key] = self.metadata_sources[key]
                     self.metadata_sources[key] = value
+            
+            # Neue Optionen in der Protokollierung vermerken
+            logger.debug(f"Temporäre Optionen angewendet: {options}")
         
         try:
             # Eindeutige ID für das Dokument erzeugen
@@ -130,11 +139,16 @@ class DocumentProcessor:
             # Extrahiere Text und Basis-Metadaten aus dem Dokument
             text, basic_metadata = self.extract_content_and_metadata(filepath)
             
+            # Vorhandene Metadaten überschreiben, falls angegeben
+            if options and "override_metadata" in options:
+                logger.debug("Überschreibe extrahierte Metadaten mit bereitgestellten Werten")
+                basic_metadata.update(options["override_metadata"])
+            
             # Erweiterte Metadaten über APIs abrufen
-            metadata = self.api_client.enhance_metadata(basic_metadata)
+            metadata = self.enhance_metadata(basic_metadata)
             
             # Text in Chunks aufteilen
-            chunks = self.text_splitter.split_text_into_chunks(text, metadata.get("language", self.language))
+            chunks = self.text_splitter.create_improved_chunks(text, metadata.get("language", self.language))
             
             # Ergebnisse speichern
             self._save_processing_results(doc_dir, text, metadata, chunks)
@@ -151,6 +165,17 @@ class DocumentProcessor:
             
             logger.info(f"Dokument erfolgreich verarbeitet: {doc_id}")
             return result
+        
+        except DocumentParsingError as e:
+            logger.error(f"Fehler bei der Dokumentenanalyse von {filename}: {str(e)}")
+            raise DocumentProcessingError(f"Dokumentenanalyse fehlgeschlagen: {str(e)}", 
+                                       document_name=filename, 
+                                       processing_stage="parsing")
+        except Exception as e:
+            logger.error(f"Fehler bei der Verarbeitung von {filepath}: {str(e)}")
+            raise DocumentProcessingError(f"Allgemeiner Verarbeitungsfehler: {str(e)}", 
+                                       document_name=os.path.basename(filepath), 
+                                       processing_stage="processing")
         
         finally:
             # Originale Optionen wiederherstellen
@@ -205,7 +230,35 @@ class DocumentProcessor:
         if 'language' not in metadata or not metadata['language']:
             metadata['language'] = self.language
         
+        # Dateityp hinzufügen
+        file_ext = os.path.splitext(filepath)[1].lower()
+        if file_ext:
+            metadata['file_type'] = file_ext[1:]  # Entferne den führenden Punkt
+        
+        # Seitenzahl hinzufügen (falls vom Parser nicht gesetzt)
+        if 'page_count' not in metadata and parser.page_count:
+            metadata['page_count'] = parser.page_count
+        
+        # Füge Dateiinformationen hinzu
+        file_path = Path(filepath)
+        metadata['filename'] = file_path.name
+        metadata['file_size'] = file_path.stat().st_size
+        
         return text, metadata
+    
+    def enhance_metadata(self, basic_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Erweitert die grundlegenden Metadaten durch Abfragen verschiedener APIs.
+        
+        Delegiert an die MetadataAPIClientFactory, um Metadaten anzureichern.
+        
+        Args:
+            basic_metadata: Aus dem Dokument extrahierte Metadaten
+            
+        Returns:
+            Erweiterte Metadaten
+        """
+        return self.api_factory.enhance_metadata(basic_metadata, self.metadata_sources)
     
     def _save_processing_results(self, doc_dir: str, text: str, metadata: Dict[str, Any], chunks: List[Dict[str, Any]]) -> None:
         """
@@ -220,32 +273,20 @@ class DocumentProcessor:
         Raises:
             IOError: Bei Problemen mit dem Dateisystem
         """
-        import json
-        
-        # Text speichern
-        with open(os.path.join(doc_dir, "fulltext.txt"), "w", encoding="utf-8") as f:
-            f.write(text)
-        
-        # Metadaten speichern
-        with open(os.path.join(doc_dir, "metadata.json"), "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-        
-        # Chunks speichern
-        with open(os.path.join(doc_dir, "chunks.json"), "w", encoding="utf-8") as f:
-            json.dump(chunks, f, ensure_ascii=False, indent=2)
-        
-        logger.debug(f"Verarbeitungsergebnisse gespeichert in {doc_dir}")
-    
-    def enhance_metadata(self, basic_metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Erweitert die grundlegenden Metadaten durch Abfragen verschiedener APIs.
-        
-        Delegiert an den MetadataAPIClient, um Metadaten anzureichern.
-        
-        Args:
-            basic_metadata: Aus dem Dokument extrahierte Metadaten
+        try:
+            # Text speichern
+            with open(os.path.join(doc_dir, "fulltext.txt"), "w", encoding="utf-8") as f:
+                f.write(text)
             
-        Returns:
-            Erweiterte Metadaten
-        """
-        return self.api_client.enhance_metadata(basic_metadata)
+            # Metadaten speichern
+            with open(os.path.join(doc_dir, "metadata.json"), "w", encoding="utf-8") as f:
+                json.dump(metadata, f, ensure_ascii=False, indent=2)
+            
+            # Chunks speichern
+            with open(os.path.join(doc_dir, "chunks.json"), "w", encoding="utf-8") as f:
+                json.dump(chunks, f, ensure_ascii=False, indent=2)
+            
+            logger.debug(f"Verarbeitungsergebnisse gespeichert in {doc_dir}")
+        except IOError as e:
+            logger.error(f"Fehler beim Speichern der Verarbeitungsergebnisse: {str(e)}")
+            raise
